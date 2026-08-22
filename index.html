@@ -5,9 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>校正・修理対応スケジュール</title>
   <!-- React 18 & Babel CDN -->
-  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
-  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js" crossorigin></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.25.6/babel.min.js"></script>
+  <!-- Google Fontsは環境によって読み込みがブロックされる場合があります。その場合は自動でsans-serif/monospaceにフォールバックします -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=IBM+Plex+Sans+JP:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -29,12 +30,17 @@
     .ledger-row:hover td.ledger-sticky-cell { background: #211e18; box-shadow: inset 3px 0 0 #c68a3d; }
     .ledger-actions { opacity: 0.55; transition: opacity 0.12s ease; }
     .ledger-row:hover .ledger-actions { opacity: 1; }
-    .ledger-th { transition: background 0.12s ease; }
-    .ledger-th .ledger-grip { opacity: 0; transition: opacity 0.12s ease; }
-    .ledger-th:hover .ledger-grip { opacity: 0.7; }
+    
+    .ledger-th { transition: background 0.12s ease; cursor: pointer; user-select: none; }
+    .ledger-th:hover { background: #28241c; color: #ece7dc; }
     .col-resize-handle:hover, .col-resize-handle:active { background: rgba(198,138,61,0.55); }
     .ledger-empty-plus { opacity: 0; transition: opacity 0.12s ease; color: #8f8879; font-size: 11px; }
     .ledger-cell-editable:hover .ledger-empty-plus { opacity: 0.6; }
+
+    /* Notion Header Menu */
+    .notion-menu-item { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 5px; font-size: 12.5px; color: #beb7a6; cursor: pointer; transition: background 0.12s; }
+    .notion-menu-item:hover { background: rgba(255,255,255,0.06); color: #fff; }
+    .notion-menu-item-danger:hover { background: rgba(201,87,63,0.15); color: #e5735f; }
 
     /* Notion Properties Table */
     .prop-row { display: flex; align-items: center; min-height: 32px; padding: 2px 0; border-bottom: 1px solid rgba(255,255,255,0.03); }
@@ -46,6 +52,9 @@
     .prop-select-btn { display: inline-flex; align-items: center; padding: 3px 6px; border-radius: 4px; font-size: 12.5px; cursor: pointer; user-select: none; transition: background 0.12s; }
     .prop-select-btn:hover { background: rgba(255,255,255,0.06); }
     .prop-unselected { color: #605a49; }
+
+    @keyframes spin { 100% { transform: rotate(360deg); } }
+    .spin-icon { animation: spin 1s linear infinite; }
   </style>
 </head>
 <body>
@@ -61,6 +70,7 @@
       </svg>
     );
     const Plus = (p) => <Icon {...p}><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></Icon>;
+    const Menu = (p) => <Icon {...p}><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></Icon>;
     const CalendarIcon = (p) => <Icon {...p}><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></Icon>;
     const TableIcon = (p) => <Icon {...p}><path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2V9M9 21H5a2 2 0 0 1-2-2V9m0 0h18"/></Icon>;
     const Upload = (p) => <Icon {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></Icon>;
@@ -92,6 +102,9 @@
     const Palette = (p) => <Icon {...p}><circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.563-2.512 5.563-5.563C22 6.5 17.5 2 12 2z"/></Icon>;
     const Cloud = (p) => <Icon {...p}><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></Icon>;
     const RefreshCw = (p) => <Icon {...p}><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></Icon>;
+    const ArrowUp = (p) => <Icon {...p}><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></Icon>;
+    const ArrowDown = (p) => <Icon {...p}><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></Icon>;
+    const Filter = (p) => <Icon {...p}><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></Icon>;
 
     // ---------- storage helpers ----------
     const REC_KEY = "kousei:records";
@@ -171,6 +184,34 @@
       }
     };
 
+    // 未保存の書き込みをキー単位で保持し、離脱時に確実にフラッシュするためのレジストリ
+    const __pendingWrites = new Map(); // key -> { next, timer }
+    const __flushWrite = async (key) => {
+      const pending = __pendingWrites.get(key);
+      if (!pending) return;
+      __pendingWrites.delete(key);
+      if (pending.timer) clearTimeout(pending.timer);
+      try {
+        if (window.storage && typeof window.storage.set === "function") {
+          await window.storage.set(key, JSON.stringify(pending.next), false);
+        } else {
+          localStorage.setItem(key, JSON.stringify(pending.next));
+        }
+      } catch (e) {
+        console.error("Storage save failed", key, e);
+      }
+    };
+    const __flushAllWrites = () => { __pendingWrites.forEach((_, key) => __flushWrite(key)); };
+    if (typeof window !== "undefined" && !window.__ledgerFlushBound) {
+      window.__ledgerFlushBound = true;
+      window.addEventListener("beforeunload", __flushAllWrites);
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "hidden") __flushAllWrites();
+      });
+    }
+
+    const STORAGE_DEBOUNCE_MS = 500;
+
     function useStorageState(key, initial) {
       const [value, setValue] = useState(initial);
       const [loaded, setLoaded] = useState(false);
@@ -187,7 +228,7 @@
               if (!cancelled && raw) setValue(JSON.parse(raw));
             }
           } catch (e) {
-            console.error("Storage load error", e);
+            // 未保存キーへの初回アクセスは正常な状態(既定値を使用)
           } finally {
             if (!cancelled) setLoaded(true);
           }
@@ -195,20 +236,35 @@
         return () => { cancelled = true; };
       }, [key]);
 
-      const persist = useCallback(async (next) => {
+      // 画面表示は即時反映し、実際のストレージ書き込みは500ms分まとめて実行する
+      // (セルを1文字編集するたびに台帳全体をシリアライズ・保存する負荷とAPIレート制限抵触を回避)
+      const persist = useCallback((next) => {
         setValue(next);
-        try {
-          if (window.storage && typeof window.storage.set === "function") {
-            await window.storage.set(key, JSON.stringify(next), false);
-          } else {
-            localStorage.setItem(key, JSON.stringify(next));
-          }
-        } catch (e) {
-          console.error("Storage save failed", e);
-        }
+        const existing = __pendingWrites.get(key);
+        if (existing && existing.timer) clearTimeout(existing.timer);
+        const timer = setTimeout(() => __flushWrite(key), STORAGE_DEBOUNCE_MS);
+        __pendingWrites.set(key, { next, timer });
       }, [key]);
 
       return [value, persist, loaded];
+    }
+
+    // 画面幅からデバイス種別を判定する(スマホ=追加・確認中心のシンプル画面、タブレット以上=フル機能)
+    function useViewport() {
+      const getCategory = () => {
+        if (typeof window === "undefined") return "desktop";
+        const w = window.innerWidth;
+        if (w < 700) return "phone";
+        if (w < 1080) return "tablet";
+        return "desktop";
+      };
+      const [category, setCategory] = useState(getCategory);
+      useEffect(() => {
+        const onResize = () => setCategory(getCategory());
+        window.addEventListener("resize", onResize);
+        return () => window.removeEventListener("resize", onResize);
+      }, []);
+      return category;
     }
 
     function parseCsv(text) {
@@ -225,13 +281,40 @@
     }
 
     const pad = n => String(n).padStart(2, "0");
-    const toISODate = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-    const fmtJP = (iso, time) => {
-      if (!iso) return "—";
-      const [y, m, d] = iso.split("-");
-      const datePart = `${y}年${Number(m)}月${Number(d)}日`;
+    const toISODate = (d) => {
+      if (!d) return "";
+      if (typeof d === "string") {
+        if (/^\d{4}-\d{2}-\d{2}$/.test(d)) return d;
+        d = new Date(d);
+      }
+      if (isNaN(d.getTime())) return "";
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    };
+
+    const fmtJP = (val, time) => {
+      if (!val) return "—";
+      let str = String(val).trim();
+      let y, m, d;
+      if (/^\d{4}[-\/]\d{1,2}[-\/]\d{1,2}/.test(str)) {
+        const parts = str.split(/[-\/]/);
+        y = parts[0];
+        m = Number(parts[1]);
+        d = Number(parts[2].slice(0, 2));
+      } else {
+        const dateObj = new Date(str);
+        if (!isNaN(dateObj.getTime())) {
+          y = dateObj.getFullYear();
+          m = dateObj.getMonth() + 1;
+          d = dateObj.getDate();
+        } else {
+          return str;
+        }
+      }
+      if (isNaN(m) || isNaN(d)) return str;
+      const datePart = `${y}年${m}月${d}日`;
       return time ? `${datePart} ${time}` : datePart;
     };
+
     const monthMatrix = (year, month) => {
       const first = new Date(year, month, 1);
       const startDay = first.getDay();
@@ -264,7 +347,7 @@
 
     function toHalfWidth(str) {
       if (!str) return str;
-      let res = str
+      let res = String(str)
         .replace(/[！-～]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0))
         .replace(/ /g, " ");
       const kanaPattern = new RegExp(Object.keys(FULL_TO_HALF_KANA).join("|"), "g");
@@ -293,6 +376,11 @@
       const [gasUrl, setGasUrl, gasUrlLoaded] = useStorageState(GAS_URL_KEY, "");
       const [syncing, setSyncing] = useState(false);
       const [showCloudConfig, setShowCloudConfig] = useState(false);
+      const device = useViewport(); // "phone" | "tablet" | "desktop"
+
+      // Notion-like Table Sort & Column Filters
+      const [columnSort, setColumnSort] = useState(null); // { key: string, direction: 'asc'|'desc' }
+      const [columnFilters, setColumnFilters] = useState({}); // { [colKey]: { query?: string, values?: string[] } }
 
       const [showColumnAdmin, setShowColumnAdmin] = useState(false);
       const [view, setView] = useState("table");
@@ -306,7 +394,6 @@
       });
       const [calAxis, setCalAxis] = useState("precheck");
       const [searchQuery, setSearchQuery] = useState("");
-      const [sortMode, setSortMode] = useState("date");
       const [showEquip, setShowEquip] = useState(null);
       const [showShortcuts, setShowShortcuts] = useState(false);
       const [showStatusAdmin, setShowStatusAdmin] = useState(false);
@@ -376,61 +463,153 @@
         setCustomColors(prev => ({ ...prev, [val]: color }));
       };
 
+      // 複合フィルター＆検索
       const filtered = useMemo(() => {
+        let list = [...records];
         const q = searchQuery.trim().toLowerCase();
-        if (!q) return records;
-        return records.filter(r => {
-          const dealer = dealerFor(r.code);
-          const hay = [r.subject, r.kind, r.code, r.tag, dealer?.name, dealer?.customerName, r.note, r.customer, r.contactName, r.personInCharge, r.model, r.content]
-            .filter(Boolean).join(" ").toLowerCase();
-          return hay.includes(q);
-        });
-      }, [records, searchQuery]);
+        if (q) {
+          list = list.filter(r => {
+            const dealer = dealerFor(r.code);
+            const hay = [r.subject, r.kind, r.code, r.tag, dealer?.name, dealer?.customerName, r.note, r.customer, r.contactName, r.personInCharge, r.model, r.content]
+              .filter(Boolean).join(" ").toLowerCase();
+            return hay.includes(q);
+          });
+        }
 
+        // 列個別フィルターの適用
+        Object.keys(columnFilters).forEach(key => {
+          const conf = columnFilters[key];
+          if (!conf) return;
+          if (conf.query && conf.query.trim()) {
+            const subQ = conf.query.trim().toLowerCase();
+            list = list.filter(r => String(r[key] || "").toLowerCase().includes(subQ));
+          }
+          if (conf.values && conf.values.length > 0) {
+            list = list.filter(r => conf.values.includes(r[key] || ""));
+          }
+        });
+
+        return list;
+      }, [records, searchQuery, columnFilters]);
+
+      // ソート処理
       const sorted = useMemo(() => {
-        const list = [...filtered];
-        if (sortMode === "subject") {
-          list.sort((a, b) => (a.subject || "").localeCompare(b.subject || "", "ja"));
-        } else {
+        let list = [...filtered];
+        if (columnSort && columnSort.key) {
+          const { key, direction } = columnSort;
           list.sort((a, b) => {
-            const da = a.precheckDate || "9999", db = b.precheckDate || "9999";
+            const valA = String(a[key] || "");
+            const valB = String(b[key] || "");
+            const comp = valA.localeCompare(valB, "ja", { numeric: true });
+            return direction === "asc" ? comp : -comp;
+          });
+        } else {
+          // デフォルト: 直近の日時順
+          list.sort((a, b) => {
+            const da = a.precheckDate || a.visitDate || a.workDate || "9999";
+            const db = b.precheckDate || b.visitDate || b.workDate || "9999";
             if (da !== db) return da.localeCompare(db);
-            return (a.precheckTime || "").localeCompare(b.precheckTime || "");
+            return (a.precheckTime || a.visitTime || a.workTime || "").localeCompare(b.precheckTime || b.visitTime || b.workTime || "");
           });
         }
         return list;
-      }, [filtered, sortMode]);
+      }, [filtered, columnSort]);
 
-      const learnOptions = (rec) => {
-        if (rec.customer && !customerOptions.includes(rec.customer.trim())) {
-          setCustomerOptions(prev => [...prev, rec.customer.trim()]);
-        }
-        if (rec.contactName && !contactOptions.includes(rec.contactName.trim())) {
-          setContactOptions(prev => [...prev, rec.contactName.trim()]);
-        }
-        if (rec.personInCharge && !chargeOptions.includes(rec.personInCharge.trim())) {
-          setChargeOptions(prev => [...prev, rec.personInCharge.trim()]);
-        }
-        if (rec.model && !modelOptions.includes(rec.model.trim())) {
-          setModelOptions(prev => [...prev, rec.model.trim()]);
+      // ---------- Enhanced Cloud (GAS) Background Sync ----------
+      const autoSyncToCloud = async (currentRecords) => {
+        if (!gasUrl.trim()) return;
+        try {
+          await fetch(gasUrl.trim(), {
+            method: "POST",
+            mode: "no-cors",
+            headers: { "Content-Type": "text/plain;charset=utf-8" },
+            body: JSON.stringify({ syncRecords: currentRecords }),
+          });
+        } catch (e) {
+          console.error("Auto sync push error:", e);
         }
       };
 
+      const silentFetchFromCloud = useCallback(async () => {
+        if (!gasUrl.trim() || syncing) return;
+        try {
+          const res = await fetch(gasUrl.trim(), {
+            method: "GET",
+            mode: "cors",
+            redirect: "follow"
+          });
+          if (!res.ok) return;
+          const json = await res.json();
+          if (json && Array.isArray(json.records) && json.records.length > 0) {
+            setRecords(prev => {
+              const map = new Map(prev.map(r => [r.id, r]));
+              let hasChange = false;
+              json.records.forEach(r => {
+                if (r.id) {
+                  const cleaned = {
+                    ...r,
+                    precheckDate: toISODate(r.precheckDate),
+                    visitDate: toISODate(r.visitDate),
+                    workDate: toISODate(r.workDate),
+                    receivedDate: toISODate(r.receivedDate),
+                    honkouseiDate: toISODate(r.honkouseiDate),
+                  };
+                  const existing = map.get(r.id);
+                  if (!existing || JSON.stringify(existing) !== JSON.stringify(cleaned)) {
+                    map.set(r.id, cleaned);
+                    hasChange = true;
+                  }
+                }
+              });
+              return hasChange ? Array.from(map.values()) : prev;
+            });
+          }
+        } catch (e) {
+          console.warn("Silent cloud fetch skipped:", e);
+        }
+      }, [gasUrl, syncing]);
+
+      useEffect(() => {
+        if (!gasUrl.trim()) return;
+        silentFetchFromCloud();
+
+        const interval = setInterval(() => {
+          if (!showForm && !showEquip) {
+            silentFetchFromCloud();
+          }
+        }, 30000);
+
+        const onFocus = () => {
+          if (!showForm && !showEquip) {
+            silentFetchFromCloud();
+          }
+        };
+        window.addEventListener("focus", onFocus);
+
+        return () => {
+          clearInterval(interval);
+          window.removeEventListener("focus", onFocus);
+        };
+      }, [gasUrl, showForm, showEquip, silentFetchFromCloud]);
+
       const saveRecord = (rec, openEquipAfter = false) => {
         pushUndo();
-        learnOptions(rec);
         const currentKind = rec.kind || "校正";
         const validStatuses = getStatusesForKind(currentKind);
         const defaultStatus = validStatuses[0] || "";
 
         let targetRecord = null;
+        let nextRecords = [];
         if (rec.id) {
           targetRecord = { ...rec, status: rec.status || defaultStatus };
-          setRecords(records.map(r => r.id === rec.id ? targetRecord : r));
+          nextRecords = records.map(r => r.id === rec.id ? targetRecord : r);
         } else {
           targetRecord = { ...rec, id: uid(), kind: currentKind, status: rec.status || defaultStatus, equipmentSheets: rec.equipmentSheets || [] };
-          setRecords([...records, targetRecord]);
+          nextRecords = [...records, targetRecord];
         }
+        setRecords(nextRecords);
+        autoSyncToCloud(nextRecords);
+
         setShowForm(false);
         setEditing(null);
 
@@ -442,7 +621,9 @@
       const deleteRecord = (id) => {
         if (!window.confirm("この予定を削除しますか？")) return;
         pushUndo();
-        setRecords(records.filter(r => r.id !== id));
+        const nextRecords = records.filter(r => r.id !== id);
+        setRecords(nextRecords);
+        autoSyncToCloud(nextRecords);
       };
 
       const updateRecordField = (id, field, value) => {
@@ -452,23 +633,29 @@
         if (field === "personInCharge" && value) setChargeOptions(prev => prev.includes(value) ? prev : [...prev, value]);
         if (field === "model" && value) setModelOptions(prev => prev.includes(value) ? prev : [...prev, value]);
         
+        let nextRecords = [];
         if (field === "kind") {
           const nextStatuses = getStatusesForKind(value);
-          setRecords(records.map(r => r.id === id ? { ...r, [field]: value, status: nextStatuses.includes(r.status) ? r.status : nextStatuses[0] } : r));
-          return;
+          nextRecords = records.map(r => r.id === id ? { ...r, [field]: value, status: nextStatuses.includes(r.status) ? r.status : nextStatuses[0] } : r);
+        } else {
+          nextRecords = records.map(r => r.id === id ? { ...r, [field]: value } : r);
         }
-
-        setRecords(records.map(r => r.id === id ? { ...r, [field]: value } : r));
+        setRecords(nextRecords);
+        autoSyncToCloud(nextRecords);
       };
 
       const updateRecordDateTime = (id, dateField, dateValue, timeField, timeValue) => {
         pushUndo();
-        setRecords(records.map(r => r.id === id ? { ...r, [dateField]: dateValue, [timeField]: timeValue } : r));
+        const nextRecords = records.map(r => r.id === id ? { ...r, [dateField]: toISODate(dateValue), [timeField]: timeValue } : r);
+        setRecords(nextRecords);
+        autoSyncToCloud(nextRecords);
       };
 
       const saveEquipmentSheets = (recordId, equipmentSheets) => {
         pushUndo();
-        setRecords(records.map(r => r.id === recordId ? { ...r, equipmentSheets } : r));
+        const nextRecords = records.map(r => r.id === recordId ? { ...r, equipmentSheets } : r);
+        setRecords(nextRecords);
+        autoSyncToCloud(nextRecords);
         if (editing && editing.id === recordId) {
           setEditing(prev => ({ ...prev, equipmentSheets }));
         }
@@ -501,7 +688,9 @@
         } else {
           setStatusesShuuri(statusesShuuri.map(s => s === oldName ? newName.trim() : s));
         }
-        setRecords(records.map(r => (r.status === oldName && r.kind === kind) ? { ...r, status: newName.trim() } : r));
+        const nextRecords = records.map(r => (r.status === oldName && r.kind === kind) ? { ...r, status: newName.trim() } : r);
+        setRecords(nextRecords);
+        autoSyncToCloud(nextRecords);
       };
       const removeStatus = (kind, name) => {
         const inUse = records.filter(r => r.status === name && r.kind === kind).length;
@@ -512,7 +701,9 @@
         } else {
           setStatusesShuuri(statusesShuuri.filter(s => s !== name));
         }
-        setRecords(records.map(r => (r.status === name && r.kind === kind) ? { ...r, status: "" } : r));
+        const nextRecords = records.map(r => (r.status === name && r.kind === kind) ? { ...r, status: "" } : r);
+        setRecords(nextRecords);
+        autoSyncToCloud(nextRecords);
       };
       const reorderStatuses = (kind, fromIdx, toIdx) => {
         if (fromIdx === toIdx) return;
@@ -532,7 +723,9 @@
 
       const moveRecordStatus = (recordId, newStatus) => {
         pushUndo();
-        setRecords(records.map(r => r.id === recordId ? { ...r, status: newStatus } : r));
+        const nextRecords = records.map(r => r.id === recordId ? { ...r, status: newStatus } : r);
+        setRecords(nextRecords);
+        autoSyncToCloud(nextRecords);
       };
 
       const reorderTableColumns = (fromIdx, toIdx) => {
@@ -554,7 +747,6 @@
         setStatusVisibility({ ...statusVisibility, [name]: level });
       };
 
-      // ---------- Cloud (GAS) Sync Logic ----------
       const fetchFromCloud = async () => {
         if (!gasUrl.trim()) {
           setShowCloudConfig(true);
@@ -562,13 +754,27 @@
         }
         setSyncing(true);
         try {
-          const res = await fetch(gasUrl.trim());
+          const res = await fetch(gasUrl.trim(), {
+            method: "GET",
+            mode: "cors",
+            redirect: "follow"
+          });
+          if (!res.ok) throw new Error(`サーバーエラー (HTTP ${res.status})`);
           const json = await res.json();
           if (json && Array.isArray(json.records)) {
             pushUndo();
             const map = new Map(records.map(r => [r.id, r]));
             json.records.forEach(r => {
-              if (r.id) map.set(r.id, r);
+              if (r.id) {
+                map.set(r.id, {
+                  ...r,
+                  precheckDate: toISODate(r.precheckDate),
+                  visitDate: toISODate(r.visitDate),
+                  workDate: toISODate(r.workDate),
+                  receivedDate: toISODate(r.receivedDate),
+                  honkouseiDate: toISODate(r.honkouseiDate),
+                });
+              }
             });
             const merged = Array.from(map.values());
             setRecords(merged);
@@ -594,6 +800,7 @@
         try {
           await fetch(gasUrl.trim(), {
             method: "POST",
+            mode: "no-cors",
             headers: { "Content-Type": "text/plain;charset=utf-8" },
             body: JSON.stringify({ syncRecords: records }),
           });
@@ -632,7 +839,12 @@
         reader.onload = (event) => {
           try {
             const parsed = JSON.parse(event.target.result);
-            if (parsed.records && Array.isArray(parsed.records)) {
+            const validRecords = Array.isArray(parsed.records)
+              ? parsed.records.filter(r => r && typeof r === "object" && typeof r.id === "string" && r.id.length > 0)
+              : null;
+            const invalidCount = Array.isArray(parsed.records) ? parsed.records.length - (validRecords ? validRecords.length : 0) : 0;
+            if (validRecords && (invalidCount === 0 || window.confirm(`${invalidCount}件のレコードは形式不正のためスキップされます。続行しますか？`))) {
+              parsed.records = validRecords;
               if (window.confirm("現在のデータが上書きされます。復元しますか？")) {
                 pushUndo();
                 setRecords(parsed.records || []);
@@ -712,7 +924,27 @@
       const activeBoardStatuses = boardRouteFilter === "校正" ? statusesKousei : statusesShuuri;
 
       return (
-        <div style={styles.app}>
+        <div style={{ ...styles.app, padding: device === "phone" ? "16px 14px 24px" : device === "tablet" ? "20px 18px 90px" : styles.app.padding }}>
+          {device === "phone" ? (
+            <MobilePhoneView
+              records={sorted}
+              codes={codes}
+              tags={tags}
+              searchQuery={searchQuery}
+              setSearchQuery={setSearchQuery}
+              onAdd={() => { setEditing(null); setShowForm(true); }}
+              onEdit={(r) => { setEditing(r); setShowForm(true); }}
+              onOpenEquip={(r) => setShowEquip(r)}
+              getColor={getColor}
+              exportBackup={exportBackup}
+              onImportBackupClick={() => backupInputRef.current?.click()}
+              gasUrl={gasUrl}
+              syncing={syncing}
+              fetchFromCloud={fetchFromCloud}
+              onOpenCloudConfig={() => setShowCloudConfig(true)}
+            />
+          ) : (
+          <React.Fragment>
           <header style={styles.header}>
             <div>
               <div style={styles.eyebrow}>受付台帳</div>
@@ -768,7 +1000,7 @@
               <input
                 ref={searchInputRef}
                 style={styles.searchInput}
-                placeholder="件名(拠点)・種別・得意先・担当・型式を検索 (/)"
+                placeholder="全体をキーワード検索 (/)"
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
               />
@@ -778,18 +1010,16 @@
             </div>
             {view === "table" && (
               <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                <div style={styles.viewToggle}>
+                {(columnSort || Object.keys(columnFilters).length > 0) && (
                   <button
-                    style={{ ...styles.viewBtn, ...(sortMode === "date" ? styles.viewBtnActive : {}) }}
-                    onClick={() => setSortMode("date")}
-                  >日時順</button>
-                  <button
-                    style={{ ...styles.viewBtn, ...(sortMode === "subject" ? styles.viewBtnActive : {}) }}
-                    onClick={() => setSortMode("subject")}
-                  >客先順</button>
-                </div>
+                    style={{ ...styles.ghostBtn, color: amber, borderColor: amber }}
+                    onClick={() => { setColumnSort(null); setColumnFilters({}); }}
+                  >
+                    <X size={13} /> フィルター/ソート解除
+                  </button>
+                )}
                 <button style={styles.ghostBtn} onClick={() => setShowColumnAdmin(true)}>
-                  <Columns size={14} /> 列を編集
+                  <Columns size={14} /> 列を表示/非表示
                 </button>
               </div>
             )}
@@ -826,6 +1056,7 @@
           {view === "table" && (
             <TableView
               records={sorted}
+              allRecords={records}
               codes={codes}
               tags={tags}
               customerOptions={customerOptions}
@@ -835,6 +1066,12 @@
               columnOrder={tableColumnOrder}
               hiddenColumns={tableHiddenColumns}
               columnWidths={tableColumnWidths}
+              columnSort={columnSort}
+              columnFilters={columnFilters}
+              onSetSort={(key, dir) => setColumnSort(dir ? { key, direction: dir } : null)}
+              onSetFilter={(key, conf) => setColumnFilters(prev => ({ ...prev, [key]: conf }))}
+              onClearFilter={(key) => setColumnFilters(prev => { const n = { ...prev }; delete n[key]; return n; })}
+              onToggleHidden={toggleColumnHidden}
               onReorderColumns={reorderTableColumns}
               onSetColumnWidth={setColumnWidth}
               onEdit={(r) => { setEditing(r); setShowForm(true); }}
@@ -880,10 +1117,10 @@
           )}
 
           <footer style={styles.footerBar}>
-            <button style={{ ...styles.ghostBtn, ...(gasUrl ? styles.ghostBtnActiveCloud : {}) }} onClick={fetchFromCloud} disabled={syncing} title="クラウドから最新データを取得">
+            <button style={{ ...styles.ghostBtn, ...(gasUrl ? styles.ghostBtnActiveCloud : {}) }} onClick={fetchFromCloud} disabled={syncing} title="クラウドから最新データを手動取得">
               <RefreshCw size={14} className={syncing ? "spin-icon" : ""} /> {syncing ? "同期中…" : "クラウドから取得"}
             </button>
-            <button style={styles.ghostBtn} onClick={pushToCloud} disabled={syncing} title="台帳データをクラウドへ上書き保存">
+            <button style={styles.ghostBtn} onClick={pushToCloud} disabled={syncing} title="台帳データをクラウドへ手動上書き保存">
               <Cloud size={14} /> クラウドへ送信
             </button>
             <button style={styles.ghostBtn} onClick={() => setShowCloudConfig(true)} title="GAS Web APIの接続設定">
@@ -910,6 +1147,8 @@
               onChange={importBackup}
             />
           </footer>
+          </React.Fragment>
+          )}
 
           {showForm && (
             <RecordForm
@@ -992,6 +1231,106 @@
       );
     }
 
+    // ================= Notion Header Column Menu Popover =================
+    function ColumnHeaderMenuPopover({ colKey, label, rect, sort, filter, uniqueValues, onSetSort, onSetFilter, onClearFilter, onHideColumn, onClose }) {
+      const [filterQuery, setFilterQuery] = useState(filter?.query || "");
+      const [selectedVals, setSelectedVals] = useState(filter?.values || []);
+
+      const toggleVal = (v) => {
+        if (selectedVals.includes(v)) {
+          setSelectedVals(selectedVals.filter(x => x !== v));
+        } else {
+          setSelectedVals([...selectedVals, v]);
+        }
+      };
+
+      const applyFilters = () => {
+        onSetFilter(colKey, {
+          query: filterQuery,
+          values: selectedVals.length > 0 ? selectedVals : undefined
+        });
+        onClose();
+      };
+
+      const handleClear = () => {
+        onClearFilter(colKey);
+        onClose();
+      };
+
+      return (
+        <React.Fragment>
+          <div style={styles.cellPopoverBackdrop} onClick={onClose} />
+          <div style={{ ...styles.notionHeaderMenu, ...popoverStyleFor(rect, 250, 360) }} onClick={e => e.stopPropagation()}>
+            <div style={styles.notionMenuTitle}>
+              <span>{label}</span>
+              <button style={styles.iconBtnSm} onClick={onClose}><X size={13} /></button>
+            </div>
+
+            {/* 並べ替え */}
+            <div style={styles.notionMenuSection}>
+              <div
+                className="notion-menu-item"
+                style={sort?.key === colKey && sort?.direction === "asc" ? styles.notionMenuItemActive : {}}
+                onClick={() => { onSetSort(colKey, sort?.key === colKey && sort?.direction === "asc" ? null : "asc"); onClose(); }}
+              >
+                <ArrowUp size={14} /> 昇順で並べ替え
+              </div>
+              <div
+                className="notion-menu-item"
+                style={sort?.key === colKey && sort?.direction === "desc" ? styles.notionMenuItemActive : {}}
+                onClick={() => { onSetSort(colKey, sort?.key === colKey && sort?.direction === "desc" ? null : "desc"); onClose(); }}
+              >
+                <ArrowDown size={14} /> 降順で並べ替え
+              </div>
+            </div>
+
+            {/* フィルター */}
+            <div style={styles.notionMenuSection}>
+              <div style={styles.notionMenuLabel}><Filter size={12} /> フィルター</div>
+              <input
+                style={styles.notionMenuInput}
+                placeholder="テキストで検索..."
+                value={filterQuery}
+                onChange={e => setFilterQuery(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter") applyFilters(); }}
+              />
+
+              {uniqueValues.length > 0 && (
+                <div style={styles.notionMenuCheckList}>
+                  {uniqueValues.map(val => (
+                    <label key={val || "未設定"} style={styles.notionMenuCheckRow}>
+                      <input
+                        type="checkbox"
+                        checked={selectedVals.includes(val)}
+                        onChange={() => toggleVal(val)}
+                      />
+                      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {val || "(未設定)"}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              )}
+
+              <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+                <button style={{ ...styles.primaryBtn, flex: 1, padding: "4px 8px", fontSize: 11.5 }} onClick={applyFilters}>適用</button>
+                {(filter || filterQuery || selectedVals.length > 0) && (
+                  <button style={{ ...styles.ghostBtn, flex: 1, padding: "4px 8px", fontSize: 11.5 }} onClick={handleClear}>リセット</button>
+                )}
+              </div>
+            </div>
+
+            {/* アクション */}
+            <div style={styles.notionMenuSection}>
+              <div className="notion-menu-item" onClick={() => { onHideColumn(colKey); onClose(); }}>
+                <EyeOff size={14} /> 列を非表示
+              </div>
+            </div>
+          </div>
+        </React.Fragment>
+      );
+    }
+
     // ================= Cloud Config Modal =================
     function CloudConfigModal({ initialUrl, onSave, onClose }) {
       const [url, setUrl] = useState(initialUrl || "");
@@ -1011,7 +1350,10 @@
                 onChange={e => setUrl(e.target.value)}
               />
               <div style={{ fontSize: 11.5, color: inkDim, marginTop: 6, lineHeight: 1.4 }}>
-                ※GASでデプロイしたウェブアプリのURLを入力すると、スプレッドシートやLINE Bot等の外部入力と双方向同期ができるようになります。
+                ※GASでデプロイしたウェブアプリのURLを入力すると、スプレッドシートや外部入力と双方向同期ができるようになります。
+              </div>
+              <div style={{ fontSize: 11.5, color: "#c68a3d", marginTop: 8, lineHeight: 1.5, padding: "8px 10px", background: "rgba(198,138,61,0.08)", border: "1px solid rgba(198,138,61,0.25)", borderRadius: 6 }}>
+                ⚠ このURLを知っている人は誰でも台帳データを読み書きできます(認証なし)。GAS側のデプロイ設定は必ず「自分のみ」または限定公開にし、URLを第三者に共有・掲示しないでください。
               </div>
             </div>
             <div style={styles.modalActions}>
@@ -1279,8 +1621,8 @@
       serialYear: { label: "製造番号・年式", editable: "text" },
       content: { label: "内容", editable: "textarea" },
       receivedDate: { label: "受付日時", editable: "datetime", dateField: "receivedDate", timeField: "receivedTime" },
-      visitDate: { label: "対応日程", editable: "datetime", dateField: "visitDate", timeField: "visitTime" },
-      workDate: { label: "作業日程", editable: "datetime", dateField: "workDate", timeField: "workTime" },
+      visitDate: { label: "対応日程(訪問)", editable: "datetime", dateField: "visitDate", timeField: "visitTime" },
+      workDate: { label: "作業日程(修理)", editable: "datetime", dateField: "workDate", timeField: "workTime" },
       tag: { label: "NSS", editable: "select-tag" },
       code: { label: "コード", editable: null },
       precheckDate: { label: "事前点検日時", editable: "datetime", dateField: "precheckDate", timeField: "precheckTime" },
@@ -1289,13 +1631,13 @@
     };
 
     function TableView({
-      records, codes, tags, customerOptions, contactOptions, chargeOptions, modelOptions, columnOrder, hiddenColumns, columnWidths,
+      records, allRecords, codes, tags, customerOptions, contactOptions, chargeOptions, modelOptions, columnOrder, hiddenColumns, columnWidths,
+      columnSort, columnFilters, onSetSort, onSetFilter, onClearFilter, onToggleHidden,
       onReorderColumns, onSetColumnWidth,
       onEdit, onDelete, onOpenEquip, onUpdateField, onUpdateDateTime, getStatusesForKind, getColor, onSetOptionColor,
     }) {
       const [activeCell, setActiveCell] = useState(null);
-      const [dragColKey, setDragColKey] = useState(null);
-      const [overColKey, setOverColKey] = useState(null);
+      const [activeHeaderMenu, setActiveHeaderMenu] = useState(null); // { key: string, rect: DOMRect }
       const [resizing, setResizing] = useState(null);
       const [liveWidth, setLiveWidth] = useState(null);
 
@@ -1337,7 +1679,7 @@
         setResizing({ key, startX: e.clientX, startWidth: widthFor(key) });
       };
 
-      if (records.length === 0) {
+      if (records.length === 0 && allRecords.length === 0) {
         return (
           <div style={styles.empty}>
             <div style={styles.emptyTitle}>まだ登録がありません</div>
@@ -1352,12 +1694,17 @@
       };
       const activeRecord = activeCell ? records.find(r => r.id === activeCell.id) : null;
 
-      const onHeaderDrop = (targetKey) => {
-        if (dragColKey !== null && dragColKey !== targetKey) {
-          onReorderColumns(columnOrder.indexOf(dragColKey), columnOrder.indexOf(targetKey));
-        }
-        setDragColKey(null);
-        setOverColKey(null);
+      const openHeaderMenu = (e, key) => {
+        e.stopPropagation();
+        setActiveHeaderMenu({ key, rect: e.currentTarget.getBoundingClientRect() });
+      };
+
+      const getUniqueValuesForCol = (key) => {
+        const set = new Set();
+        allRecords.forEach(r => {
+          if (r[key]) set.add(r[key]);
+        });
+        return Array.from(set);
       };
 
       const renderCellContent = (key, r) => {
@@ -1437,30 +1784,40 @@
                 <th className="ledger-th ledger-sticky-cell" style={{ ...styles.th, ...styles.thSticky }}></th>
                 {visibleColumns.map((key) => {
                   const def = TABLE_COLUMN_DEFS[key];
+                  const hasSort = columnSort?.key === key;
+                  const hasFilter = !!columnFilters[key];
+
                   return (
                     <th
                       key={key}
                       className="ledger-th"
-                      style={{ ...styles.th, ...styles.thDraggable, ...(overColKey === key ? styles.thDragOver : {}), position: "relative" }}
-                      draggable
-                      onDragStart={() => setDragColKey(key)}
-                      onDragOver={(e) => { e.preventDefault(); if (dragColKey !== null) setOverColKey(key); }}
-                      onDragLeave={() => setOverColKey(o => (o === key ? null : o))}
-                      onDrop={() => onHeaderDrop(key)}
-                      onDragEnd={() => { setDragColKey(null); setOverColKey(null); }}
-                      title="ドラッグして列を並び替え"
+                      style={{
+                        ...styles.th,
+                        position: "relative",
+                        ...(hasSort || hasFilter ? styles.thActiveFilter : {})
+                      }}
+                      onClick={(e) => openHeaderMenu(e, key)}
+                      title="クリックして並び替え・フィルターメニューを開く"
                     >
-                      <span style={styles.thLabelWrap}>
-                        <GripVertical className="ledger-grip" size={11} color="#948d7c" style={{ marginRight: 4, verticalAlign: -1, flexShrink: 0 }} />
+                      <div style={styles.thLabelWrap}>
                         <span style={styles.thLabelText}>{def.label}</span>
-                      </span>
+                        {hasSort && (
+                          <span style={styles.thIndicator}>
+                            {columnSort.direction === "asc" ? <ArrowUp size={11} color={amber} /> : <ArrowDown size={11} color={amber} />}
+                          </span>
+                        )}
+                        {hasFilter && (
+                          <span style={styles.thIndicator}>
+                            <Filter size={11} color={amber} />
+                          </span>
+                        )}
+                      </div>
                       <div
                         className="col-resize-handle"
                         style={styles.colResizeHandle}
                         onMouseDown={(e) => startResize(e, key)}
                         onClick={(e) => e.stopPropagation()}
                         title="ドラッグでリサイズ"
-                        draggable={false}
                       />
                     </th>
                   );
@@ -1506,6 +1863,23 @@
               ))}
             </tbody>
           </table>
+
+          {/* Notion Header Popover Menu */}
+          {activeHeaderMenu && (
+            <ColumnHeaderMenuPopover
+              colKey={activeHeaderMenu.key}
+              label={TABLE_COLUMN_DEFS[activeHeaderMenu.key]?.label}
+              rect={activeHeaderMenu.rect}
+              sort={columnSort}
+              filter={columnFilters[activeHeaderMenu.key]}
+              uniqueValues={getUniqueValuesForCol(activeHeaderMenu.key)}
+              onSetSort={onSetSort}
+              onSetFilter={onSetFilter}
+              onClearFilter={onClearFilter}
+              onHideColumn={onToggleHidden}
+              onClose={() => setActiveHeaderMenu(null)}
+            />
+          )}
 
           {activeCell && activeRecord && activeCell.field === "subject" && (
             <TextCellPopover
@@ -1637,7 +2011,7 @@
         <div style={styles.overlay} onClick={onClose}>
           <div style={styles.modal} onClick={e => e.stopPropagation()}>
             <div style={styles.modalHead}>
-              <div style={styles.modalTitle}>列を編集</div>
+              <div style={styles.modalTitle}>列を表示 / 非表示</div>
               <button style={styles.iconBtn} onClick={onClose}><X size={16} /></button>
             </div>
             <div style={styles.statusAdminHint}>ドラッグして並び替え、目のアイコンで表示/非表示を切替</div>
@@ -1678,6 +2052,133 @@
       );
     }
 
+    // ================= Mobile Phone View (スマホ: 追加・確認中心) =================
+    function MobilePhoneView({ records, codes, tags, searchQuery, setSearchQuery, onAdd, onEdit, onOpenEquip, getColor, exportBackup, onImportBackupClick, gasUrl, syncing, fetchFromCloud, onOpenCloudConfig }) {
+      const [showMenu, setShowMenu] = useState(false);
+
+      const fmtDateShort = (iso, time) => {
+        if (!iso) return "";
+        const d = new Date(iso + "T00:00:00");
+        if (Number.isNaN(d.getTime())) return iso;
+        const s = `${d.getMonth() + 1}/${d.getDate()}(${"日月火水木金土"[d.getDay()]})`;
+        return time ? `${s} ${time}` : s;
+      };
+
+      return (
+        <div style={{ display: "flex", flexDirection: "column", minHeight: "calc(100vh - 40px)" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14, gap: 10 }}>
+            <div>
+              <div style={{ fontSize: 10, letterSpacing: "0.14em", color: "#8f8a7c", textTransform: "uppercase", marginBottom: 4 }}>受付台帳</div>
+              <div style={{ fontSize: 18, fontWeight: 600 }}>校正・修理対応</div>
+            </div>
+            <button
+              style={{ width: 38, height: 38, borderRadius: 10, border: "1px solid #3a352b", background: "#1c1a15", color: "#c7c1b3", display: "flex", alignItems: "center", justifyContent: "center" }}
+              onClick={() => setShowMenu(true)}
+              title="メニュー"
+            >
+              <Menu size={18} />
+            </button>
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 12px", borderRadius: 10, border: "1px solid #3a352b", background: "#151310", marginBottom: 12 }}>
+            <Search size={14} color="#6b6658" />
+            <input
+              style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: "#e9e4d8", fontSize: 14 }}
+              placeholder="検索(拠点名・得意先など)"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+            />
+            {searchQuery && (
+              <button style={{ background: "transparent", border: "none", color: "#8f8a7c" }} onClick={() => setSearchQuery("")}><X size={14} /></button>
+            )}
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 10, paddingBottom: 90 }}>
+            {records.length === 0 && (
+              <div style={{ textAlign: "center", color: "#8f8a7c", fontSize: 13, padding: "40px 0" }}>
+                該当する受付がありません
+              </div>
+            )}
+            {records.map(r => (
+              <div
+                key={r.id}
+                onClick={() => onEdit(r)}
+                style={{ padding: "12px 14px", borderRadius: 12, border: "1px solid #3a352b", background: "#1c1a15", cursor: "pointer" }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                  <div style={{ fontSize: 15, fontWeight: 600, color: "#e9e4d8" }}>{r.subject || "(拠点名未入力)"}</div>
+                  {r.status && (
+                    <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 999, whiteSpace: "nowrap", background: getColor(r.status, 0), color: "#151310", fontWeight: 600 }}>
+                      {r.status}
+                    </span>
+                  )}
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
+                  {r.kind && <span style={{ fontSize: 11, padding: "2px 7px", borderRadius: 6, background: "#26221a", color: "#c7c1b3" }}>{r.kind}</span>}
+                  {r.customer && <span style={{ fontSize: 11, padding: "2px 7px", borderRadius: 6, background: "#26221a", color: "#c7c1b3" }}>{r.customer}</span>}
+                </div>
+                {(r.precheckDate || r.visitDate || r.workDate) && (
+                  <div style={{ fontSize: 12, color: "#a29c8d", marginTop: 6 }}>
+                    {fmtDateShort(r.precheckDate || r.visitDate || r.workDate, r.precheckDate ? r.precheckTime : (r.visitDate ? r.visitTime : r.workTime))}
+                  </div>
+                )}
+                {r.content && (
+                  <div style={{ fontSize: 12, color: "#8f8a7c", marginTop: 6, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>
+                    {r.content}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+
+          <button
+            onClick={onAdd}
+            style={{
+              position: "fixed", right: 20, bottom: 24, width: 56, height: 56, borderRadius: 28,
+              background: "#c68a3d", color: "#151310", border: "none", boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
+              display: "flex", alignItems: "center", justifyContent: "center", zIndex: 40,
+            }}
+            title="新規登録"
+          >
+            <Plus size={26} />
+          </button>
+
+          {showMenu && (
+            <div
+              style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 50, display: "flex", alignItems: "flex-end" }}
+              onClick={() => setShowMenu(false)}
+            >
+              <div
+                style={{ width: "100%", background: "#1c1a15", borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: "10px 14px 24px", border: "1px solid #3a352b", borderBottom: "none" }}
+                onClick={e => e.stopPropagation()}
+              >
+                <div style={{ width: 36, height: 4, borderRadius: 2, background: "#3a352b", margin: "4px auto 14px" }} />
+                <button style={{ width: "100%", textAlign: "left", padding: "12px 6px", background: "transparent", border: "none", color: "#e9e4d8", fontSize: 14, display: "flex", alignItems: "center", gap: 10 }}
+                  onClick={() => { setShowMenu(false); fetchFromCloud(); }} disabled={syncing}>
+                  <RefreshCw size={16} className={syncing ? "spin-icon" : ""} /> {syncing ? "同期中…" : "クラウドから取得"}
+                </button>
+                <button style={{ width: "100%", textAlign: "left", padding: "12px 6px", background: "transparent", border: "none", color: "#e9e4d8", fontSize: 14, display: "flex", alignItems: "center", gap: 10 }}
+                  onClick={() => { setShowMenu(false); onOpenCloudConfig(); }}>
+                  ⚙️ クラウド設定 {gasUrl ? "(設定済)" : ""}
+                </button>
+                <button style={{ width: "100%", textAlign: "left", padding: "12px 6px", background: "transparent", border: "none", color: "#e9e4d8", fontSize: 14, display: "flex", alignItems: "center", gap: 10 }}
+                  onClick={() => { setShowMenu(false); exportBackup(); }}>
+                  <Download size={16} /> バックアップ出力
+                </button>
+                <button style={{ width: "100%", textAlign: "left", padding: "12px 6px", background: "transparent", border: "none", color: "#e9e4d8", fontSize: 14, display: "flex", alignItems: "center", gap: 10 }}
+                  onClick={() => { setShowMenu(false); onImportBackupClick(); }}>
+                  <Upload size={16} /> バックアップ復元
+                </button>
+                <div style={{ fontSize: 11.5, color: "#8f8a7c", marginTop: 10, lineHeight: 1.5, padding: "0 6px" }}>
+                  ※ 台帳の表示切替・点検表の編集・列のカスタマイズなどはタブレット以上の画面幅でご利用ください。
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
     // ================= Calendar View =================
     function CalendarView({ records, codes, tags, cursor, setCursor, axis, setAxis, onEdit, getColor }) {
       const { y, m } = cursor;
@@ -1685,14 +2186,14 @@
       const byDate = useMemo(() => {
         const map = {};
         for (const r of records) {
-          const iso = axis === "precheck" ? r.precheckDate : r.honkouseiDate;
+          const iso = axis === "precheck" ? (r.precheckDate || r.visitDate) : (r.honkouseiDate || r.workDate);
           if (!iso) continue;
           (map[iso] = map[iso] || []).push(r);
         }
         for (const iso in map) {
           map[iso].sort((a, b) => {
-            const ta = (axis === "precheck" ? a.precheckTime : a.honkouseiTime) || "";
-            const tb = (axis === "precheck" ? b.precheckTime : b.honkouseiTime) || "";
+            const ta = (axis === "precheck" ? (a.precheckTime || a.visitTime) : (a.honkouseiTime || a.workTime)) || "";
+            const tb = (axis === "precheck" ? (b.precheckTime || b.visitTime) : (b.honkouseiTime || b.workTime)) || "";
             return ta.localeCompare(tb);
           });
         }
@@ -1720,11 +2221,11 @@
               <button
                 style={{ ...styles.viewBtn, ...(axis === "precheck" ? styles.viewBtnActive : {}) }}
                 onClick={() => setAxis("precheck")}
-              >事前点検日時</button>
+              >第1日程 (事前点検/訪問)</button>
               <button
                 style={{ ...styles.viewBtn, ...(axis === "honkousei" ? styles.viewBtnActive : {}) }}
                 onClick={() => setAxis("honkousei")}
-              >本校正日時</button>
+              >第2日程 (本校正/作業)</button>
             </div>
           </div>
 
@@ -1745,7 +2246,7 @@
                       </div>
                       <div style={styles.calItems}>
                         {items.map(r => {
-                          const t = axis === "precheck" ? r.precheckTime : r.honkouseiTime;
+                          const t = axis === "precheck" ? (r.precheckTime || r.visitTime) : (r.honkouseiTime || r.workTime);
                           return (
                             <div
                               key={r.id}
@@ -1821,7 +2322,10 @@
             <div style={styles.floatingRow}>
               <span style={styles.floatingLabel}>日程</span>
               <span style={styles.floatingVal}>
-                {record.workDate ? fmtJP(record.workDate, record.workTime) : (record.visitDate ? fmtJP(record.visitDate, record.visitTime) : (record.precheckDate ? fmtJP(record.precheckDate, record.precheckTime) : "未設定"))}
+                {record.kind === "校正"
+                  ? (record.precheckDate ? `事前: ${fmtJP(record.precheckDate, record.precheckTime)}` : (record.honkouseiDate ? `本校正: ${fmtJP(record.honkouseiDate, record.honkouseiTime)}` : "未設定"))
+                  : (record.visitDate ? `訪問: ${fmtJP(record.visitDate, record.visitTime)}` : (record.workDate ? `作業: ${fmtJP(record.workDate, record.workTime)}` : "未設定"))
+                }
               </span>
             </div>
             <div style={styles.floatingRow}>
@@ -2111,7 +2615,7 @@
       );
     }
 
-    // ================= Compact Notion-Style Record Form =================
+    // ================= Compact Notion-Style Record Form with Smart Date Visibility =================
     function RecordForm({ initial, codes, tags, getStatusesForKind, customerOptions, contactOptions, chargeOptions, modelOptions, onCancel, onSave, onOpenEquip, getColor, onSetOptionColor }) {
       const [subject, setSubject] = useState(initial?.subject || "");
       const [kind, setKind] = useState(initial?.kind || "校正");
@@ -2126,15 +2630,15 @@
       const [tag, setTag] = useState(initial?.tag || "");
       const [note, setNote] = useState(initial?.note || "");
 
-      const [receivedDate, setReceivedDate] = useState(initial?.receivedDate || (!initial ? toISODate(new Date()) : ""));
+      const [receivedDate, setReceivedDate] = useState(toISODate(initial?.receivedDate) || (!initial ? toISODate(new Date()) : ""));
       const [receivedTime, setReceivedTime] = useState(initial?.receivedTime || "");
-      const [visitDate, setVisitDate] = useState(initial?.visitDate || "");
+      const [visitDate, setVisitDate] = useState(toISODate(initial?.visitDate) || "");
       const [visitTime, setVisitTime] = useState(initial?.visitTime || "");
-      const [workDate, setWorkDate] = useState(initial?.workDate || "");
+      const [workDate, setWorkDate] = useState(toISODate(initial?.workDate) || "");
       const [workTime, setWorkTime] = useState(initial?.workTime || "");
-      const [precheckDate, setPrecheckDate] = useState(initial?.precheckDate || "");
+      const [precheckDate, setPrecheckDate] = useState(toISODate(initial?.precheckDate) || "");
       const [precheckTime, setPrecheckTime] = useState(initial?.precheckTime || "");
-      const [honkouseiDate, setHonkouseiDate] = useState(initial?.honkouseiDate || "");
+      const [honkouseiDate, setHonkouseiDate] = useState(toISODate(initial?.honkouseiDate) || "");
       const [honkouseiTime, setHonkouseiTime] = useState(initial?.honkouseiTime || "");
 
       const [codeQuery, setCodeQuery] = useState("");
@@ -2200,15 +2704,15 @@
         status,
         tag,
         note,
-        receivedDate,
+        receivedDate: toISODate(receivedDate),
         receivedTime,
-        visitDate,
+        visitDate: toISODate(visitDate),
         visitTime,
-        workDate,
+        workDate: toISODate(workDate),
         workTime,
-        precheckDate,
+        precheckDate: toISODate(precheckDate),
         precheckTime,
-        honkouseiDate,
+        honkouseiDate: toISODate(honkouseiDate),
         honkouseiTime,
       });
 
@@ -2235,7 +2739,6 @@
             onClick={e => e.stopPropagation()}
             onKeyDown={e => { if ((e.ctrlKey || e.metaKey) && e.key === "Enter") { e.preventDefault(); submit(); } }}
           >
-            {/* Title / Subject with Autocomplete Search */}
             <div style={{ position: "relative", marginBottom: 16 }}>
               <input
                 style={styles.notionTitleInput}
@@ -2272,7 +2775,6 @@
               )}
             </div>
 
-            {/* Properties List */}
             <div style={styles.propList}>
               <div className="prop-row">
                 <div className="prop-label"><CalendarIcon size={14} /> 受付日時</div>
@@ -2385,19 +2887,52 @@
                 </div>
               </div>
 
-              <div className="prop-row">
-                <div className="prop-label"><CalendarIcon size={14} /> 対応日程</div>
-                <div className="prop-value">
-                  <DateTimePicker dateValue={visitDate} timeValue={visitTime} onDateChange={setVisitDate} onTimeChange={setVisitTime} />
-                </div>
+              <div style={styles.notionSubSectionTitle}>
+                {kind === "校正" ? "校正日程" : (kind === "修理・不具合対応" ? "修理・対応日程" : "実施日程")}
               </div>
 
-              <div className="prop-row">
-                <div className="prop-label"><CalendarIcon size={14} /> 作業日程</div>
-                <div className="prop-value">
-                  <DateTimePicker dateValue={workDate} timeValue={workTime} onDateChange={setWorkDate} onTimeChange={setWorkTime} />
+              {kind === "校正" && (
+                <React.Fragment>
+                  <div className="prop-row">
+                    <div className="prop-label"><CalendarIcon size={14} /> 事前点検日時</div>
+                    <div className="prop-value">
+                      <DateTimePicker dateValue={precheckDate} timeValue={precheckTime} onDateChange={setPrecheckDate} onTimeChange={setPrecheckTime} />
+                    </div>
+                  </div>
+                  <div className="prop-row">
+                    <div className="prop-label"><CalendarIcon size={14} /> 本校正日時</div>
+                    <div className="prop-value">
+                      <DateTimePicker dateValue={honkouseiDate} timeValue={honkouseiTime} onDateChange={setHonkouseiDate} onTimeChange={setHonkouseiTime} />
+                    </div>
+                  </div>
+                </React.Fragment>
+              )}
+
+              {kind === "修理・不具合対応" && (
+                <React.Fragment>
+                  <div className="prop-row">
+                    <div className="prop-label"><CalendarIcon size={14} /> 訪問・調査日程</div>
+                    <div className="prop-value">
+                      <DateTimePicker dateValue={visitDate} timeValue={visitTime} onDateChange={setVisitDate} onTimeChange={setVisitTime} />
+                    </div>
+                  </div>
+                  <div className="prop-row">
+                    <div className="prop-label"><CalendarIcon size={14} /> 作業・修理日程</div>
+                    <div className="prop-value">
+                      <DateTimePicker dateValue={workDate} timeValue={workTime} onDateChange={setWorkDate} onTimeChange={setWorkTime} />
+                    </div>
+                  </div>
+                </React.Fragment>
+              )}
+
+              {(kind === "点検" || kind === "その他") && (
+                <div className="prop-row">
+                  <div className="prop-label"><CalendarIcon size={14} /> 実施予定日時</div>
+                  <div className="prop-value">
+                    <DateTimePicker dateValue={visitDate} timeValue={visitTime} onDateChange={setVisitDate} onTimeChange={setVisitTime} />
+                  </div>
                 </div>
-              </div>
+              )}
 
               <div className="prop-row">
                 <div className="prop-label"><Disc size={14} /> 手配状況</div>
@@ -2410,23 +2945,6 @@
                     allowCreate={false}
                     onSelect={setStatus}
                   />
-                </div>
-              </div>
-
-              {/* 校正詳細セクション */}
-              <div style={styles.notionSubSectionTitle}>校正関係日程</div>
-
-              <div className="prop-row">
-                <div className="prop-label"><CalendarIcon size={14} /> 事前点検日時</div>
-                <div className="prop-value">
-                  <DateTimePicker dateValue={precheckDate} timeValue={precheckTime} onDateChange={setPrecheckDate} onTimeChange={setPrecheckTime} />
-                </div>
-              </div>
-
-              <div className="prop-row">
-                <div className="prop-label"><CalendarIcon size={14} /> 本校正日時</div>
-                <div className="prop-value">
-                  <DateTimePicker dateValue={honkouseiDate} timeValue={honkouseiTime} onDateChange={setHonkouseiDate} onTimeChange={setHonkouseiTime} />
                 </div>
               </div>
 
@@ -2761,8 +3279,8 @@
 
     // ================= Shortcuts Help =================
     const SHORTCUT_LIST = [
-      { keys: "N", desc: "新規登録" },
-      { keys: "/", desc: "検索欄にフォーカス" },
+      { keys: "N", desc: "新規登録モーダルを開く" },
+      { keys: "/", desc: "全体検索欄にフォーカス" },
       { keys: "Esc", desc: "開いている画面を閉じる" },
       { keys: "Ctrl / ⌘ + Z", desc: "元に戻す" },
       { keys: "Ctrl / ⌘ + Shift + Z", desc: "やり直す" },
@@ -3024,7 +3542,7 @@
     }
 
     function EquipmentSheet({ record, onClose, onSave }) {
-      const defaultInspectionDate = record.precheckDate || toISODate(new Date());
+      const defaultInspectionDate = toISODate(record.precheckDate) || toISODate(new Date());
 
       const initialSheets = useMemo(() => {
         if (record.equipmentSheets?.length) {
@@ -3510,7 +4028,7 @@
       },
       eyebrow: { fontSize: 10.5, letterSpacing: "0.16em", color: inkFaint, fontFamily: "'IBM Plex Mono', monospace", marginBottom: 7, textTransform: "uppercase" },
       title: { fontSize: 23, fontWeight: 600, margin: 0, letterSpacing: "-0.01em", color: ink },
-      headerActions: { display: "flex", gap: 8, alignItems: "center" },
+      headerActions: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" },
       viewToggle: { display: "flex", background: paperRaised, borderRadius: 8, padding: 3, border: `1px solid ${rule}` },
       viewBtn: {
         display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", fontSize: 12.5,
@@ -3557,8 +4075,10 @@
         fontWeight: 600, fontSize: 10.5, letterSpacing: "0.07em", textTransform: "uppercase",
         borderBottom: `1px solid ${rule}`, whiteSpace: "nowrap", overflow: "hidden",
       },
-      thLabelWrap: { display: "flex", alignItems: "center", overflow: "hidden" },
+      thActiveFilter: { color: amber, background: "#262118" },
+      thLabelWrap: { display: "flex", alignItems: "center", gap: 6, overflow: "hidden" },
       thLabelText: { overflow: "hidden", textOverflow: "ellipsis" },
+      thIndicator: { display: "flex", alignItems: "center" },
       colResizeHandle: {
         position: "absolute", top: 0, right: 0, bottom: 0, width: 6, cursor: "col-resize", zIndex: 2,
       },
@@ -3573,8 +4093,6 @@
         display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical",
         overflow: "hidden", maxWidth: 260, fontSize: 12, color: inkDim, lineHeight: 1.5,
       },
-      thDraggable: { cursor: "grab", userSelect: "none" },
-      thDragOver: { background: "#332a17" },
       cellPopoverBackdrop: { position: "fixed", inset: 0, zIndex: 55 },
       cellPopover: {
         zIndex: 56, background: "#1f1c16", border: `1px solid ${rule}`, borderRadius: 10, padding: 10,
@@ -3606,6 +4124,32 @@
       pillSelectActive: {
         color: "#f4efe3", fontWeight: 600, borderColor: "transparent",
       },
+
+      /* Notion Header Popover Menu Styles */
+      notionHeaderMenu: {
+        zIndex: 56, background: "#201c16", border: `1px solid ${rule}`, borderRadius: 9,
+        padding: "8px 6px", boxShadow: "0 14px 40px rgba(0,0,0,0.6)", display: "flex", flexDirection: "column", gap: 4,
+      },
+      notionMenuTitle: {
+        display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 8px 8px",
+        fontSize: 13, fontWeight: 600, color: "#fff", borderBottom: `1px solid ${rule}`,
+      },
+      notionMenuSection: {
+        display: "flex", flexDirection: "column", gap: 2, padding: "6px 2px", borderBottom: `1px solid rgba(255,255,255,0.04)`,
+      },
+      notionMenuItemActive: { background: "rgba(198,138,61,0.15)", color: amber, fontWeight: 600 },
+      notionMenuLabel: { fontSize: 11, color: inkDim, padding: "2px 8px 4px", display: "flex", alignItems: "center", gap: 5 },
+      notionMenuInput: {
+        width: "100%", padding: "5px 8px", background: "#141310", border: `1px solid ${rule}`,
+        borderRadius: 5, color: ink, fontSize: 12, outline: "none", margin: "2px 0 6px",
+      },
+      notionMenuCheckList: {
+        maxHeight: 120, overflowY: "auto", display: "flex", flexDirection: "column", gap: 4, padding: "2px 6px",
+      },
+      notionMenuCheckRow: {
+        display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#c7c1b3", cursor: "pointer",
+      },
+
       calHeader: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 10 },
       calNav: { display: "flex", alignItems: "center", gap: 12 },
       calMonthLabel: { fontSize: 16, fontWeight: 600, minWidth: 110, textAlign: "center" },
@@ -3735,7 +4279,6 @@
       boardCollapsedDot: { width: 8, height: 8, borderRadius: "50%", flexShrink: 0 },
       boardCollapsedName: { flex: 1, fontSize: 12, color: "#c7c1b3", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
       
-      /* Floating Card Tooltip Styles matching the screenshot */
       floatingCardPopup: {
         position: "fixed", zIndex: 100, background: "#ffffff", color: "#2c3e50",
         borderRadius: 10, padding: "14px 16px", boxShadow: "0 12px 35px rgba(0,0,0,0.45)",
