@@ -373,7 +373,7 @@
       const [tableColumnOrder, setTableColumnOrder, tableColLoaded] = useStorageState(TABLE_COL_KEY, DEFAULT_COLUMN_ORDER);
       const [tableHiddenColumns, setTableHiddenColumns, tableHiddenLoaded] = useStorageState(TABLE_HIDDEN_COL_KEY, []);
       const [tableColumnWidths, setTableColumnWidths, tableWidthLoaded] = useStorageState(TABLE_COL_WIDTH_KEY, DEFAULT_COLUMN_WIDTHS);
-      const [gasUrl, setGasUrl, gasUrlLoaded] = useStorageState(GAS_URL_KEY, "");
+      const [gasUrl, setGasUrl, gasUrlLoaded] = useStorageState(GAS_URL_KEY, "https://script.google.com/macros/s/AKfycbxvcVpIHVjdq0BrN56Mp1t1ew5JHPrfHfDhMm9SWgU1PGtxM1wtCIBfcIpXPBGrD5D0/exec");
       const [syncing, setSyncing] = useState(false);
       const [showCloudConfig, setShowCloudConfig] = useState(false);
       const device = useViewport(); // "phone" | "tablet" | "desktop"
