@@ -66,33 +66,33 @@
       --clrf4efe3: #f4efe3;
     }
     :root[data-theme="light"] {
-      --clr14130f: #f8f8f6;
-      --clr141310: #f8f8f6;
-      --clr151310: #f8f8f6;
-      --clr161410: #f9f8f6;
-      --clr171310: #f9f7f6;
-      --clr19170f: #f9f8f6;
-      --clr191712: #f9f8f6;
-      --clr1a1712: #f9f8f6;
-      --clr1b1915: #f8f8f6;
-      --clr1c1a15: #f8f8f6;
-      --clr1c1a16: #f8f8f6;
-      --clr1f1c16: #f9f8f6;
-      --clr201c16: #f9f8f6;
-      --clr211e18: #f9f8f6;
+      --clr14130f: #ffffff;
+      --clr141310: #ffffff;
+      --clr151310: #fdfcf9;
+      --clr161410: #fbfaf6;
+      --clr171310: #fbfaf6;
+      --clr19170f: #fbfaf6;
+      --clr191712: #fbfaf6;
+      --clr1a1712: #fbfaf6;
+      --clr1b1915: #f4f0e6;
+      --clr1c1a15: #f0ece0;
+      --clr1c1a16: #f0ece0;
+      --clr1f1c16: #ece7d9;
+      --clr201c16: #e8e2d2;
+      --clr211e18: #ece7d9;
       --clr211f1a: #f8f8f6;
       --clr231d13: #f9f8f6;
       --clr25211a: #f9f8f6;
       --clr262118: #f9f8f6;
       --clr26221a: #f9f8f6;
-      --clr27241d: #f8f8f6;
+      --clr27241d: #b7b09a;
       --clr28241c: #f9f8f6;
       --clr2a2418: #f9f8f6;
       --clr2e2717: #f9f8f6;
-      --clr2e2a22: #e9e7e2;
-      --clr322d24: #eae7e1;
+      --clr2e2a22: #b0a993;
+      --clr322d24: #a49c85;
       --clr332c20: #ebe7e0;
-      --clr3a352b: #e9e7e2;
+      --clr3a352b: #a89f88;
       --clr443d2f: #eae7e1;
       --clr48432f: #ebe9e0;
       --clr5a5548: #c2beb3;
@@ -826,6 +826,12 @@
         nextRecords = rec.id ? records.map(r => r.id === rec.id ? targetRecord : r) : [...records, targetRecord];
         setRecords(nextRecords);
         autoSyncToCloud(nextRecords);
+
+        // 新規/編集フォームで入力した得意先・営業担当・担当者・型式は、次回から選択肢として使い回せるよう記録する
+        if (targetRecord.customer) setCustomerOptions(prev => prev.includes(targetRecord.customer) ? prev : [...prev, targetRecord.customer]);
+        if (targetRecord.contactName) setContactOptions(prev => prev.includes(targetRecord.contactName) ? prev : [...prev, targetRecord.contactName]);
+        if (targetRecord.personInCharge) setChargeOptions(prev => prev.includes(targetRecord.personInCharge) ? prev : [...prev, targetRecord.personInCharge]);
+        if (targetRecord.model) setModelOptions(prev => prev.includes(targetRecord.model) ? prev : [...prev, targetRecord.model]);
 
         setShowForm(false);
         setEditing(null);
@@ -1896,6 +1902,13 @@
       const [activeHeaderMenu, setActiveHeaderMenu] = useState(null); // { key: string, rect: DOMRect }
       const [resizing, setResizing] = useState(null);
       const [liveWidth, setLiveWidth] = useState(null);
+      const [copiedCode, setCopiedCode] = useState(null); // 直近でコピーしたコード(ポップアップの代わりに文言だけ一時的に切り替える)
+
+      const handleCopyCode = (code) => {
+        copyToClipboard(code);
+        setCopiedCode(code);
+        setTimeout(() => setCopiedCode(c => c === code ? null : c), 1200);
+      };
 
       const visibleColumns = useMemo(
         () => columnOrder.filter(k => TABLE_COLUMN_DEFS[k] && !hiddenColumns.includes(k)),
@@ -2006,12 +2019,18 @@
           case "code":
             return (
               <span
-                style={{ fontFamily: "'IBM Plex Mono', monospace", color: "var(--clr8f8a7c)", cursor: "pointer" }}
-                onClick={(e) => { e.stopPropagation(); if (r.code) { copyToClipboard(r.code); alert(`コード「${r.code}」をコピーしました`); } }}
+                style={{ fontFamily: "'IBM Plex Mono', monospace", color: copiedCode === r.code ? "#2f8f5b" : "var(--clr8f8a7c)", cursor: "pointer" }}
+                onClick={(e) => { e.stopPropagation(); if (r.code) handleCopyCode(r.code); }}
                 title="クリックでコードをコピー"
               >
-                {r.code || "—"}
-                {r.code && dealerFor(r.code, dealerGroups) && <span style={styles.tdDealer}> {dealerFor(r.code, dealerGroups).name}</span>}
+                {copiedCode === r.code ? (
+                  <>✓ コピーしました</>
+                ) : (
+                  <>
+                    {r.code || "—"}
+                    {r.code && dealerFor(r.code, dealerGroups) && <span style={styles.tdDealer}> {dealerFor(r.code, dealerGroups).name}</span>}
+                  </>
+                )}
               </span>
             );
           case "precheckDate":
@@ -2958,6 +2977,12 @@
 
       const [codeQuery, setCodeQuery] = useState("");
       const [showSuggest, setShowSuggest] = useState(false);
+      const [codeCopied, setCodeCopied] = useState(false);
+      const handleCopyCodeInForm = (val) => {
+        copyToClipboard(val);
+        setCodeCopied(true);
+        setTimeout(() => setCodeCopied(false), 1200);
+      };
 
       const availableStatuses = useMemo(() => getStatusesForKind(kind), [kind, getStatusesForKind]);
 
@@ -3064,11 +3089,11 @@
               />
               {code && (
                 <span
-                  style={{ ...styles.notionCodeBadge, cursor: "pointer" }}
-                  onClick={() => { copyToClipboard(code); alert(`コード「${code}」をコピーしました`); }}
+                  style={{ ...styles.notionCodeBadge, cursor: "pointer", color: codeCopied ? "#2f8f5b" : undefined }}
+                  onClick={() => handleCopyCodeInForm(code)}
                   title="クリックでコードをコピー"
                 >
-                  コード: {code} 📋
+                  {codeCopied ? "✓ コピーしました" : `コード: ${code}`}
                 </span>
               )}
               {showSuggest && matches.length > 0 && (
