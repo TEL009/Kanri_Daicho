@@ -1948,6 +1948,59 @@
         setResizing({ key, startX: e.clientX, startWidth: widthFor(key) });
       };
 
+      // セルの中身(文字列・タグ)の長さに応じて、その列にちょうど収まる幅を計算する(Excelのダブルクリック相当)
+      const PILL_COLUMNS = new Set(["kind", "customer", "contactName", "personInCharge", "model", "tag", "status"]);
+      const measureCtxRef = useRef(null);
+      const getCellRawText = (key, r) => {
+        switch (key) {
+          case "subject": return r.subject || "";
+          case "kind": return r.kind || "";
+          case "customer": return r.customer || "";
+          case "contactName": return r.contactName || "";
+          case "personInCharge": return r.personInCharge || "";
+          case "model": return r.model || "";
+          case "serialYear": return r.serialYear || "";
+          case "content": return r.content || "";
+          case "receivedDate": return r.receivedDate ? `${fmtJP(r.receivedDate, r.receivedTime)}` : "";
+          case "visitDate": return r.visitDate ? `${fmtJP(r.visitDate, r.visitTime)}` : "";
+          case "workDate": return r.workDate ? `${fmtJP(r.workDate, r.workTime)}` : "";
+          case "tag": return r.tag || "";
+          case "code": {
+            const dealer = r.code ? dealerFor(r.code, dealerGroups) : null;
+            return r.code ? `${r.code}${dealer ? " " + dealer.name : ""}` : "";
+          }
+          case "precheckDate": return r.precheckDate ? `${fmtJP(r.precheckDate, r.precheckTime)}` : "";
+          case "honkouseiDate": return r.honkouseiDate ? `${fmtJP(r.honkouseiDate, r.honkouseiTime)}` : "";
+          case "status": return r.status || "";
+          default: return "";
+        }
+      };
+
+      const autoFitColumn = (key) => {
+        if (!measureCtxRef.current) {
+          const canvas = document.createElement("canvas");
+          measureCtxRef.current = canvas.getContext("2d");
+        }
+        const ctx = measureCtxRef.current;
+        ctx.font = "13px 'IBM Plex Sans JP', 'Hiragino Sans', sans-serif";
+        const def = TABLE_COLUMN_DEFS[key];
+        const isPill = PILL_COLUMNS.has(key);
+        // ヘッダーラベル自身の幅も考慮する(ソート・フィルターアイコン分の余白込み)
+        let maxTextWidth = ctx.measureText(def?.label || "").width + 28;
+        // 内容が空(＋)の列は自動フィットしても意味がないので通常の行だけ見る
+        for (const r of allRecords) {
+          const text = getCellRawText(key, r);
+          if (!text) continue;
+          const w = ctx.measureText(text).width;
+          if (w > maxTextWidth) maxTextWidth = w;
+        }
+        const padding = isPill ? 34 : 24; // ピル(タグ風バッジ)は左右の余白・角丸分を多めに確保
+        const computed = Math.ceil(maxTextWidth + padding);
+        const MAX_AUTO_WIDTH = key === "content" ? 420 : 320;
+        const finalWidth = Math.max(MIN_COL_WIDTH, Math.min(MAX_AUTO_WIDTH, computed));
+        onSetColumnWidth(key, finalWidth);
+      };
+
       if (records.length === 0 && allRecords.length === 0) {
         return (
           <div style={styles.empty}>
@@ -2092,7 +2145,8 @@
                         style={styles.colResizeHandle}
                         onMouseDown={(e) => startResize(e, key)}
                         onClick={(e) => e.stopPropagation()}
-                        title="ドラッグでリサイズ"
+                        onDoubleClick={(e) => { e.preventDefault(); e.stopPropagation(); autoFitColumn(key); }}
+                        title="ドラッグでリサイズ / ダブルクリックで幅を自動調整"
                       />
                     </th>
                   );
