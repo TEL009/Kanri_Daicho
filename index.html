@@ -115,7 +115,7 @@
       --clre8e3d9: #2f2b23;
       --clre9e4d8: #2f2b23;
       --clrece7dc: #2f2b23;
-      --clrf4efe3: #2f2b23;
+      --clrf4efe3: #f4efe3;
     }
 
     * { box-sizing: border-box; }
@@ -229,6 +229,9 @@
     const BOARD_LAYOUT_KEY = "kousei:board-layout";
     const TABLE_COL_KEY = "kousei:table-column-order";
     const TABLE_HIDDEN_COL_KEY = "kousei:table-hidden-columns";
+    const TABLE_VIEWS_KEY = "kousei:table-views";
+    const TABLE_SORT_KEY = "kousei:table-sort";
+    const TABLE_FILTERS_KEY = "kousei:table-filters";
     const TABLE_COL_WIDTH_KEY = "kousei:table-column-widths";
     const GAS_URL_KEY = "kousei:gas-api-url";
     const THEME_KEY = "kousei:theme";
@@ -253,6 +256,15 @@
     const defaultColorFor = (idx) => CATEGORY_PALETTE[Math.max(0, idx) % CATEGORY_PALETTE.length];
 
     const DEFAULT_TAGS = ["音和製作所", "ALT", "NSS中部", "渡井商会"];
+    const KIND_KEY = "kousei:kinds";
+    // 種別ごとに「日程が何段階か」を持たせる。校正だけは専用の用語・ステータス表(statusesKousei)を使う特別扱いで、
+    // それ以外(修理・不具合対応/点検/その他、および今後追加される種別)はすべて共通のステータス表(statusesShuuri)を使う。
+    const DEFAULT_KINDS = [
+      { id: "kind-kousei", name: "校正", dateMode: "double" },
+      { id: "kind-shuuri", name: "修理・不具合対応", dateMode: "double" },
+      { id: "kind-tenken", name: "点検", dateMode: "single" },
+      { id: "kind-sonota", name: "その他", dateMode: "single" },
+    ];
     const KIND_OPTIONS = ["校正", "修理・不具合対応", "点検", "その他"];
 
     const DEFAULT_STATUSES_KOUSEI = [
@@ -419,11 +431,29 @@
         const [h, mi] = s.split(":");
         return `${pad(Number(h))}:${mi}`;
       }
+      // 末尾にZやタイムゾーンオフセットが付いたISO文字列(例: ...T04:00:00.000Z)はUTCなので、
+      // 数字をそのまま抜き出さずDateとして解釈し、ブラウザのローカル時刻(日本時間)に変換する
+      if (/T\d{2}:\d{2}/.test(s) && /(Z|[+-]\d{2}:?\d{2})$/.test(s)) {
+        const dUtc = new Date(s);
+        if (!isNaN(dUtc.getTime())) return `${pad(dUtc.getHours())}:${pad(dUtc.getMinutes())}`;
+      }
+      // タイムゾーン情報がない日時文字列は、意図しない変換を避けるためそのまま数字だけを取り出す
       const isoMatch = s.match(/T(\d{2}):(\d{2})/);
       if (isoMatch) return `${isoMatch[1]}:${isoMatch[2]}`;
       const d = new Date(s);
       if (!isNaN(d.getTime())) return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
       return "";
+    };
+
+    // 背景色の明るさから、その上に乗せる文字色を白/黒どちらにすべきか判定する(色付きタイル上での可読性確保用)
+    const readableTextOn = (bgColor) => {
+      if (!bgColor || typeof bgColor !== "string" || !bgColor.startsWith("#")) return "#151310";
+      let hex = bgColor.slice(1);
+      if (hex.length === 3) hex = hex.split("").map(c => c + c).join("");
+      if (hex.length !== 6) return "#151310";
+      const r = parseInt(hex.slice(0, 2), 16), g = parseInt(hex.slice(2, 4), 16), b = parseInt(hex.slice(4, 6), 16);
+      const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+      return luminance > 0.55 ? "#151310" : "#f5f2ea";
     };
 
     // ================= 日程入力に応じたステータス自動更新 =================
@@ -432,26 +462,30 @@
     // ・ステータスは後退させない(すでに先に進んでいる場合は上書きしない)
     // ・カスタマイズでステータス名が変更/削除されている場合は何もしない(名前が一致しないため)
     const AUTO_STATUS_TERMINAL = ["対応終了分", "やらない"];
-    const computeAutoStatus = (record, statusList) => {
+    const computeAutoStatus = (record, statusList, kinds) => {
       if (!record || !Array.isArray(statusList) || statusList.length === 0) return record;
       const currentStatus = record.status || "";
       if (AUTO_STATUS_TERMINAL.includes(currentStatus)) return record;
       const currentIdx = statusList.indexOf(currentStatus);
       const todayIso = toISODate(new Date());
 
+      const kindDef = Array.isArray(kinds) ? kinds.find(k => k.name === record.kind) : null;
+      const dateMode = kindDef ? kindDef.dateMode : (record.kind === "校正" ? "double" : record.kind === "修理・不具合対応" ? "double" : "single");
+
       let date1, date2, enteredTarget1, passedTarget1, enteredTarget2, passedTarget2;
       if (record.kind === "校正") {
         date1 = record.precheckDate; date2 = record.honkouseiDate;
         enteredTarget1 = "事前点検日程調整済"; passedTarget1 = "事前点検完了";
         enteredTarget2 = "本校正日程調整済"; passedTarget2 = "本校正完了";
-      } else if (record.kind === "修理・不具合対応") {
+      } else if (dateMode === "double") {
+        // 修理・不具合対応、および2段階設定の追加種別はすべて同じ「訪問→作業」型の日程・ステータス名を使う
         date1 = record.visitDate; date2 = record.workDate;
         enteredTarget1 = "訪問日程調整済"; passedTarget1 = "訪問対応済";
         enteredTarget2 = "作業日程調整済"; passedTarget2 = "作業完了";
       } else {
-        // 点検・その他: 実施予定日時(visitDate)のみ
+        // 単一日程の種別: 実施予定日時(visitDate)のみ。段階が1つしかないため、日時を過ぎたら「作業完了」まで進める
         date1 = record.visitDate; date2 = null;
-        enteredTarget1 = "訪問日程調整済"; passedTarget1 = "訪問対応済";
+        enteredTarget1 = "訪問日程調整済"; passedTarget1 = "作業完了";
         enteredTarget2 = null; passedTarget2 = null;
       }
 
@@ -536,6 +570,7 @@
       const [records, setRecords, recLoaded] = useStorageState(REC_KEY, []);
       const [codes, setCodes, codeLoaded] = useStorageState(CODE_KEY, DEFAULT_CODES);
       const [dealerGroups, setDealerGroups, dealerGroupLoaded] = useStorageState(DEALER_GROUP_KEY, DEFAULT_DEALER_GROUPS);
+      const [kinds, setKinds, kindsLoaded] = useStorageState(KIND_KEY, DEFAULT_KINDS);
       const [tags, setTags, tagLoaded] = useStorageState(TAG_KEY, DEFAULT_TAGS);
       const [customerOptions, setCustomerOptions, customerOptLoaded] = useStorageState(CUSTOMER_OPT_KEY, []);
       const [contactOptions, setContactOptions, contactOptLoaded] = useStorageState(CONTACT_OPT_KEY, []);
@@ -549,6 +584,12 @@
       const [boardRouteFilter, setBoardRouteFilter] = useState("校正");
       const [tableColumnOrder, setTableColumnOrder, tableColLoaded] = useStorageState(TABLE_COL_KEY, DEFAULT_COLUMN_ORDER);
       const [tableHiddenColumns, setTableHiddenColumns, tableHiddenLoaded] = useStorageState(TABLE_HIDDEN_COL_KEY, []);
+      const [baseColumnSort, setBaseColumnSort, baseSortLoaded] = useStorageState(TABLE_SORT_KEY, null);
+      const [baseColumnFilters, setBaseColumnFilters, baseFiltersLoaded] = useStorageState(TABLE_FILTERS_KEY, {});
+      // 台帳のタブ(Notionのビューのイメージ): 最初の「受付台帳」タブは常に master(既存のtableHiddenColumns/tableColumnOrder等)を参照し、
+      // それ以外は元データはそのままに「表示する列・並び順・ソート・フィルター」だけを個別に持つ追加タブ。
+      const [customTableViews, setCustomTableViews, customTableViewsLoaded] = useStorageState(TABLE_VIEWS_KEY, []);
+      const [activeTableViewId, setActiveTableViewId] = useState("base");
       const [tableColumnWidths, setTableColumnWidths, tableWidthLoaded] = useStorageState(TABLE_COL_WIDTH_KEY, DEFAULT_COLUMN_WIDTHS);
       const [gasUrl, setGasUrl, gasUrlLoaded] = useStorageState(GAS_URL_KEY, "https://script.google.com/macros/s/AKfycbxvcVpIHVjdq0BrN56Mp1t1ew5JHPrfHfDhMm9SWgU1PGtxM1wtCIBfcIpXPBGrD5D0/exec");
       const [theme, setTheme, themeLoaded] = useStorageState(THEME_KEY, "dark");
@@ -561,17 +602,15 @@
       const [showCloudConfig, setShowCloudConfig] = useState(false);
       const device = useViewport(); // "phone" | "tablet" | "desktop"
 
-      // Notion-like Table Sort & Column Filters
-      const [columnSort, setColumnSort] = useState(null); // { key: string, direction: 'asc'|'desc' }
-      const [columnFilters, setColumnFilters] = useState({}); // { [colKey]: { query?: string, values?: string[] } }
-
       const [showColumnAdmin, setShowColumnAdmin] = useState(false);
       const [view, setView] = useState("table");
       const [showForm, setShowForm] = useState(false);
+      const [showQuickAdd, setShowQuickAdd] = useState(false);
       const [editing, setEditing] = useState(null);
       const [showImport, setShowImport] = useState(false);
       const [showTagAdmin, setShowTagAdmin] = useState(false);
       const [showDealerGroupAdmin, setShowDealerGroupAdmin] = useState(false);
+      const [showKindAdmin, setShowKindAdmin] = useState(false);
       const [calCursor, setCalCursor] = useState(() => {
         const t = new Date();
         return { y: t.getFullYear(), m: t.getMonth() };
@@ -594,17 +633,18 @@
       }, [statusesKousei, statusesShuuri]);
 
       const pushUndo = () => {
-        setUndoStack(prev => [...prev.slice(-HISTORY_LIMIT + 1), { records, codes, dealerGroups, tags, statusesKousei, statusesShuuri, customerOptions, contactOptions, chargeOptions, modelOptions, customColors }]);
+        setUndoStack(prev => [...prev.slice(-HISTORY_LIMIT + 1), { records, codes, dealerGroups, kinds, tags, statusesKousei, statusesShuuri, customerOptions, contactOptions, chargeOptions, modelOptions, customColors }]);
         setRedoStack([]);
       };
       const undo = () => {
         setUndoStack(prev => {
           if (prev.length === 0) return prev;
           const snap = prev[prev.length - 1];
-          setRedoStack(r => [...r, { records, codes, dealerGroups, tags, statusesKousei, statusesShuuri, customerOptions, contactOptions, chargeOptions, modelOptions, customColors }]);
+          setRedoStack(r => [...r, { records, codes, dealerGroups, kinds, tags, statusesKousei, statusesShuuri, customerOptions, contactOptions, chargeOptions, modelOptions, customColors }]);
           setRecords(snap.records);
           setCodes(snap.codes);
           setDealerGroups(snap.dealerGroups || DEFAULT_DEALER_GROUPS);
+          setKinds(snap.kinds || DEFAULT_KINDS);
           setTags(snap.tags);
           setStatusesKousei(snap.statusesKousei || DEFAULT_STATUSES_KOUSEI);
           setStatusesShuuri(snap.statusesShuuri || DEFAULT_STATUSES_SHUURI);
@@ -620,10 +660,11 @@
         setRedoStack(prev => {
           if (prev.length === 0) return prev;
           const snap = prev[prev.length - 1];
-          setUndoStack(u => [...u, { records, codes, dealerGroups, tags, statusesKousei, statusesShuuri, customerOptions, contactOptions, chargeOptions, modelOptions, customColors }]);
+          setUndoStack(u => [...u, { records, codes, dealerGroups, kinds, tags, statusesKousei, statusesShuuri, customerOptions, contactOptions, chargeOptions, modelOptions, customColors }]);
           setRecords(snap.records);
           setCodes(snap.codes);
           setDealerGroups(snap.dealerGroups || DEFAULT_DEALER_GROUPS);
+          setKinds(snap.kinds || DEFAULT_KINDS);
           setTags(snap.tags);
           setStatusesKousei(snap.statusesKousei || DEFAULT_STATUSES_KOUSEI);
           setStatusesShuuri(snap.statusesShuuri || DEFAULT_STATUSES_SHUURI);
@@ -636,12 +677,17 @@
         });
       };
 
-      const ready = recLoaded && codeLoaded && dealerGroupLoaded && tagLoaded && customerOptLoaded && contactOptLoaded && chargeOptLoaded && modelOptLoaded && customColorsLoaded && statusKouseiLoaded && statusShuuriLoaded && hiddenLoaded && boardLayoutLoaded && tableColLoaded && tableHiddenLoaded && tableWidthLoaded && gasUrlLoaded && themeLoaded;
+      const ready = recLoaded && codeLoaded && dealerGroupLoaded && kindsLoaded && tagLoaded && customerOptLoaded && contactOptLoaded && chargeOptLoaded && modelOptLoaded && customColorsLoaded && statusKouseiLoaded && statusShuuriLoaded && hiddenLoaded && boardLayoutLoaded && tableColLoaded && tableHiddenLoaded && tableWidthLoaded && gasUrlLoaded && themeLoaded && customTableViewsLoaded && baseSortLoaded && baseFiltersLoaded;
 
       // 起動時に、(1)壊れた時刻欄(クラウド連携由来の不正なISO文字列など)をクリーンアップし、
       // (2)期日を過ぎた予定のステータスを自動で前進させる(手動編集を伴わないため、この処理自体は履歴に積まない)
       useEffect(() => {
         if (!ready) return;
+        // 過去に保存された列順に、後から追加された列(例: 種別)が含まれていない場合は末尾に補う
+        const missingCols = Object.keys(TABLE_COLUMN_DEFS).filter(k => !tableColumnOrder.includes(k));
+        if (missingCols.length > 0) {
+          setTableColumnOrder([...tableColumnOrder, ...missingCols]);
+        }
         let changed = false;
         const next = records.map(r => {
           const cleanedTimes = {
@@ -653,7 +699,7 @@
           };
           const timesChanged = Object.keys(cleanedTimes).some(k => cleanedTimes[k] !== (r[k] || ""));
           const base = timesChanged ? { ...r, ...cleanedTimes } : r;
-          const updated = computeAutoStatus(base, getStatusesForKind(base.kind || "校正"));
+          const updated = computeAutoStatus(base, getStatusesForKind(base.kind || "校正"), kinds);
           if (updated !== r) changed = true;
           return updated;
         });
@@ -675,7 +721,42 @@
         setCustomColors(prev => ({ ...prev, [val]: color }));
       };
 
-      // 複合フィルター＆検索
+      const activeCustomView = activeTableViewId === "base" ? null : customTableViews.find(v => v.id === activeTableViewId);
+      const activeHiddenColumns = activeTableViewId === "base" ? tableHiddenColumns : (activeCustomView?.hiddenColumns || []);
+      const activeColumnOrder = activeTableViewId === "base" ? tableColumnOrder : (activeCustomView?.columnOrder || tableColumnOrder);
+      const activeColumnSort = activeTableViewId === "base" ? baseColumnSort : (activeCustomView?.sort ?? null);
+      const activeColumnFilters = activeTableViewId === "base" ? baseColumnFilters : (activeCustomView?.filters || {});
+
+      const setActiveColumnSort = (nextSort) => {
+        if (activeTableViewId === "base") {
+          setBaseColumnSort(nextSort);
+        } else {
+          setCustomTableViews(prev => prev.map(v => v.id === activeTableViewId ? { ...v, sort: nextSort } : v));
+        }
+      };
+      const setActiveColumnFilter = (key, conf) => {
+        if (activeTableViewId === "base") {
+          setBaseColumnFilters(prev => ({ ...prev, [key]: conf }));
+        } else {
+          setCustomTableViews(prev => prev.map(v => {
+            if (v.id !== activeTableViewId) return v;
+            return { ...v, filters: { ...(v.filters || {}), [key]: conf } };
+          }));
+        }
+      };
+      const clearActiveColumnFilter = (key) => {
+        if (activeTableViewId === "base") {
+          setBaseColumnFilters(prev => { const n = { ...prev }; delete n[key]; return n; });
+        } else {
+          setCustomTableViews(prev => prev.map(v => {
+            if (v.id !== activeTableViewId) return v;
+            const n = { ...(v.filters || {}) }; delete n[key];
+            return { ...v, filters: n };
+          }));
+        }
+      };
+
+      // 複合フィルター＆検索(検索・種別による絞り込みなど、台帳/ボード/カレンダー/スマホ画面すべてに共通)
       const filtered = useMemo(() => {
         let list = [...records];
         const q = searchQuery.trim().toLowerCase();
@@ -687,10 +768,25 @@
             return hay.includes(q);
           });
         }
+        return list;
+      }, [records, searchQuery, dealerGroups]);
 
-        // 列個別フィルターの適用
-        Object.keys(columnFilters).forEach(key => {
-          const conf = columnFilters[key];
+      const defaultDateSort = (list) => {
+        const next = [...list];
+        next.sort((a, b) => {
+          const da = a.precheckDate || a.visitDate || a.workDate || "9999";
+          const db = b.precheckDate || b.visitDate || b.workDate || "9999";
+          if (da !== db) return da.localeCompare(db);
+          return (a.precheckTime || a.visitTime || a.workTime || "").localeCompare(b.precheckTime || b.visitTime || b.workTime || "");
+        });
+        return next;
+      };
+
+      // 台帳(テーブル)専用: アクティブなタブのフィルター・ソートを適用する(ボード/カレンダー/スマホ画面には影響しない)
+      const tableFiltered = useMemo(() => {
+        let list = [...filtered];
+        Object.keys(activeColumnFilters).forEach(key => {
+          const conf = activeColumnFilters[key];
           if (!conf) return;
           if (conf.query && conf.query.trim()) {
             const subQ = conf.query.trim().toLowerCase();
@@ -700,32 +796,26 @@
             list = list.filter(r => conf.values.includes(r[key] || ""));
           }
         });
-
         return list;
-      }, [records, searchQuery, columnFilters]);
+      }, [filtered, activeColumnFilters]);
 
-      // ソート処理
-      const sorted = useMemo(() => {
-        let list = [...filtered];
-        if (columnSort && columnSort.key) {
-          const { key, direction } = columnSort;
+      const tableSorted = useMemo(() => {
+        if (activeColumnSort && activeColumnSort.key) {
+          const { key, direction } = activeColumnSort;
+          const list = [...tableFiltered];
           list.sort((a, b) => {
             const valA = String(a[key] || "");
             const valB = String(b[key] || "");
             const comp = valA.localeCompare(valB, "ja", { numeric: true });
             return direction === "asc" ? comp : -comp;
           });
-        } else {
-          // デフォルト: 直近の日時順
-          list.sort((a, b) => {
-            const da = a.precheckDate || a.visitDate || a.workDate || "9999";
-            const db = b.precheckDate || b.visitDate || b.workDate || "9999";
-            if (da !== db) return da.localeCompare(db);
-            return (a.precheckTime || a.visitTime || a.workTime || "").localeCompare(b.precheckTime || b.visitTime || b.workTime || "");
-          });
+          return list;
         }
-        return list;
-      }, [filtered, columnSort]);
+        return defaultDateSort(tableFiltered);
+      }, [tableFiltered, activeColumnSort]);
+
+      // ボード/カレンダー/スマホ画面用: 検索のみを反映した既定の日時順(台帳のタブ別フィルター・ソートには影響されない)
+      const sorted = useMemo(() => defaultDateSort(filtered), [filtered]);
 
       // ---------- Enhanced Cloud (GAS) Background Sync ----------
       const autoSyncToCloud = async (currentRecords) => {
@@ -822,7 +912,7 @@
         } else {
           targetRecord = { ...rec, id: uid(), kind: currentKind, status: rec.status || defaultStatus, equipmentSheets: rec.equipmentSheets || [] };
         }
-        targetRecord = computeAutoStatus(targetRecord, validStatuses);
+        targetRecord = computeAutoStatus(targetRecord, validStatuses, kinds);
         nextRecords = rec.id ? records.map(r => r.id === rec.id ? targetRecord : r) : [...records, targetRecord];
         setRecords(nextRecords);
         autoSyncToCloud(nextRecords);
@@ -872,7 +962,7 @@
         const nextRecords = records.map(r => {
           if (r.id !== id) return r;
           const updated = { ...r, [dateField]: toISODate(dateValue), [timeField]: timeValue };
-          return computeAutoStatus(updated, getStatusesForKind(updated.kind || "校正"));
+          return computeAutoStatus(updated, getStatusesForKind(updated.kind || "校正"), kinds);
         });
         setRecords(nextRecords);
         autoSyncToCloud(nextRecords);
@@ -957,15 +1047,74 @@
 
       const reorderTableColumns = (fromIdx, toIdx) => {
         if (fromIdx === toIdx) return;
-        const next = [...tableColumnOrder];
+        if (activeTableViewId === "base") {
+          const next = [...tableColumnOrder];
+          const [moved] = next.splice(fromIdx, 1);
+          next.splice(toIdx, 0, moved);
+          setTableColumnOrder(next);
+        } else {
+          setCustomTableViews(prev => prev.map(v => {
+            if (v.id !== activeTableViewId) return v;
+            const next = [...(v.columnOrder || tableColumnOrder)];
+            const [moved] = next.splice(fromIdx, 1);
+            next.splice(toIdx, 0, moved);
+            return { ...v, columnOrder: next };
+          }));
+        }
+      };
+      // 得意先・営業担当・担当者・型式・NSS・種別など、選択肢一覧(プルダウン)の並び順をドラッグで自由に変更するための汎用ヘルパー
+      const reorderOptionList = (setter, list) => (fromIdx, toIdx) => {
+        if (fromIdx === toIdx) return;
+        const next = [...list];
         const [moved] = next.splice(fromIdx, 1);
         next.splice(toIdx, 0, moved);
-        setTableColumnOrder(next);
+        setter(next);
       };
+      const reorderCustomerOptions = reorderOptionList(setCustomerOptions, customerOptions);
+      const reorderContactOptions = reorderOptionList(setContactOptions, contactOptions);
+      const reorderChargeOptions = reorderOptionList(setChargeOptions, chargeOptions);
+      const reorderModelOptions = reorderOptionList(setModelOptions, modelOptions);
+      const reorderTags = reorderOptionList(setTags, tags);
+      const reorderKindList = reorderOptionList(setKinds, kinds);
       const toggleColumnHidden = (key) => {
-        setTableHiddenColumns(
-          tableHiddenColumns.includes(key) ? tableHiddenColumns.filter(k => k !== key) : [...tableHiddenColumns, key]
-        );
+        if (activeTableViewId === "base") {
+          setTableHiddenColumns(
+            tableHiddenColumns.includes(key) ? tableHiddenColumns.filter(k => k !== key) : [...tableHiddenColumns, key]
+          );
+        } else {
+          setCustomTableViews(prev => prev.map(v => {
+            if (v.id !== activeTableViewId) return v;
+            const hidden = v.hiddenColumns.includes(key) ? v.hiddenColumns.filter(k => k !== key) : [...v.hiddenColumns, key];
+            return { ...v, hiddenColumns: hidden };
+          }));
+        }
+      };
+
+      const addTableView = () => {
+        const name = window.prompt("新しいタブの名前を入力してください", "新しいビュー");
+        if (!name || !name.trim()) return;
+        const newView = {
+          id: uid(),
+          name: name.trim(),
+          hiddenColumns: [...activeHiddenColumns],
+          columnOrder: [...activeColumnOrder],
+          sort: activeColumnSort,
+          filters: { ...activeColumnFilters },
+        };
+        setCustomTableViews(prev => [...prev, newView]);
+        setActiveTableViewId(newView.id);
+      };
+      const renameTableView = (id) => {
+        const current = customTableViews.find(v => v.id === id);
+        if (!current) return;
+        const name = window.prompt("タブの名前を変更", current.name);
+        if (!name || !name.trim()) return;
+        setCustomTableViews(prev => prev.map(v => v.id === id ? { ...v, name: name.trim() } : v));
+      };
+      const removeTableView = (id) => {
+        if (!window.confirm("このタブを削除しますか？(元データは削除されません)")) return;
+        setCustomTableViews(prev => prev.filter(v => v.id !== id));
+        if (activeTableViewId === id) setActiveTableViewId("base");
       };
       const setColumnWidth = (key, width) => {
         setTableColumnWidths({ ...tableColumnWidths, [key]: Math.round(width) });
@@ -1054,7 +1203,7 @@
       };
 
       const exportBackup = () => {
-        const data = JSON.stringify({ records, codes, dealerGroups, tags, statusesKousei, statusesShuuri, customerOptions, contactOptions, chargeOptions, modelOptions, customColors, exportedAt: new Date().toISOString() }, null, 2);
+        const data = JSON.stringify({ records, codes, dealerGroups, kinds, tags, statusesKousei, statusesShuuri, customerOptions, contactOptions, chargeOptions, modelOptions, customColors, customTableViews, exportedAt: new Date().toISOString() }, null, 2);
         const blob = new Blob([data], { type: "application/json" });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
@@ -1082,6 +1231,8 @@
                 setRecords(parsed.records || []);
                 setCodes(parsed.codes || []);
                 setDealerGroups(parsed.dealerGroups || DEFAULT_DEALER_GROUPS);
+                setKinds(parsed.kinds || DEFAULT_KINDS);
+                setCustomTableViews(parsed.customTableViews || []);
                 setTags(parsed.tags || DEFAULT_TAGS);
                 setStatusesKousei(parsed.statusesKousei || DEFAULT_STATUSES_KOUSEI);
                 setStatusesShuuri(parsed.statusesShuuri || DEFAULT_STATUSES_SHUURI);
@@ -1110,9 +1261,11 @@
           if (e.key === "Escape") {
             if (showEquip) { setShowEquip(null); return; }
             if (showForm) { setShowForm(false); setEditing(null); return; }
+            if (showQuickAdd) { setShowQuickAdd(false); return; }
             if (showImport) { setShowImport(false); return; }
             if (showTagAdmin) { setShowTagAdmin(false); return; }
             if (showDealerGroupAdmin) { setShowDealerGroupAdmin(false); return; }
+            if (showKindAdmin) { setShowKindAdmin(false); return; }
             if (showStatusAdmin) { setShowStatusAdmin(false); return; }
             if (showColumnAdmin) { setShowColumnAdmin(false); return; }
             if (showCloudConfig) { setShowCloudConfig(false); return; }
@@ -1129,7 +1282,7 @@
           }
 
           if (isTyping(document.activeElement)) return;
-          const anyModalOpen = showEquip || showForm || showImport || showTagAdmin || showDealerGroupAdmin || showStatusAdmin || showColumnAdmin || showCloudConfig || showShortcuts;
+          const anyModalOpen = showEquip || showForm || showQuickAdd || showImport || showTagAdmin || showDealerGroupAdmin || showKindAdmin || showStatusAdmin || showColumnAdmin || showCloudConfig || showShortcuts;
 
           if (!anyModalOpen && (e.key === "n" || e.key === "N")) {
             e.preventDefault(); setEditing(null); setShowForm(true); return;
@@ -1144,7 +1297,7 @@
 
         window.addEventListener("keydown", onKeyDown);
         return () => window.removeEventListener("keydown", onKeyDown);
-      }, [records, codes, dealerGroups, tags, statusesKousei, statusesShuuri, customerOptions, contactOptions, chargeOptions, modelOptions, customColors, showEquip, showForm, showImport, showTagAdmin, showDealerGroupAdmin, showStatusAdmin, showColumnAdmin, showCloudConfig, showShortcuts]);
+      }, [records, codes, dealerGroups, kinds, tags, statusesKousei, statusesShuuri, customerOptions, contactOptions, chargeOptions, modelOptions, customColors, showEquip, showForm, showQuickAdd, showImport, showTagAdmin, showDealerGroupAdmin, showKindAdmin, showStatusAdmin, showColumnAdmin, showCloudConfig, showShortcuts]);
 
       if (!ready) {
         return (
@@ -1167,7 +1320,7 @@
               tags={tags}
               searchQuery={searchQuery}
               setSearchQuery={setSearchQuery}
-              onAdd={() => { setEditing(null); setShowForm(true); }}
+              onAdd={() => setShowQuickAdd(true)}
               onEdit={(r) => { setEditing(r); setShowForm(true); }}
               onOpenEquip={(r) => setShowEquip(r)}
               getColor={getColor}
@@ -1258,10 +1411,17 @@
             </div>
             {view === "table" && (
               <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                {(columnSort || Object.keys(columnFilters).length > 0) && (
+                {(activeColumnSort || Object.keys(activeColumnFilters).length > 0) && (
                   <button
                     style={{ ...styles.ghostBtn, color: amber, borderColor: amber }}
-                    onClick={() => { setColumnSort(null); setColumnFilters({}); }}
+                    onClick={() => {
+                      setActiveColumnSort(null);
+                      if (activeTableViewId === "base") {
+                        setBaseColumnFilters({});
+                      } else {
+                        setCustomTableViews(prev => prev.map(v => v.id === activeTableViewId ? { ...v, filters: {} } : v));
+                      }
+                    }}
                   >
                     <X size={13} /> フィルター/ソート解除
                   </button>
@@ -1279,9 +1439,9 @@
                     onClick={() => setBoardRouteFilter("校正")}
                   >校正ルート</button>
                   <button
-                    style={{ ...styles.viewBtn, ...(boardRouteFilter === "修理・不具合対応" ? styles.viewBtnActive : {}) }}
-                    onClick={() => setBoardRouteFilter("修理・不具合対応")}
-                  >修理ルート</button>
+                    style={{ ...styles.viewBtn, ...(boardRouteFilter === "その他" ? styles.viewBtnActive : {}) }}
+                    onClick={() => setBoardRouteFilter("その他")}
+                  >修理・点検・その他ルート</button>
                 </div>
 
                 <div style={styles.viewToggle}>
@@ -1302,24 +1462,56 @@
           </div>
 
           {view === "table" && (
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 14, flexWrap: "wrap", borderBottom: `1px solid ${rule}`, paddingBottom: 8 }}>
+              <button
+                style={{ ...styles.viewBtn, ...(activeTableViewId === "base" ? styles.viewBtnActive : {}) }}
+                onClick={() => setActiveTableViewId("base")}
+              >
+                <TableIcon size={13} /> 受付台帳
+              </button>
+              {customTableViews.map(v => (
+                <div key={v.id} style={{ display: "flex", alignItems: "center" }}>
+                  <button
+                    style={{ ...styles.viewBtn, ...(activeTableViewId === v.id ? styles.viewBtnActive : {}) }}
+                    onClick={() => setActiveTableViewId(v.id)}
+                    onDoubleClick={() => renameTableView(v.id)}
+                    title="クリックで切替 / ダブルクリックで名前変更"
+                  >
+                    <TableIcon size={13} /> {v.name}
+                  </button>
+                  {activeTableViewId === v.id && (
+                    <button style={{ ...styles.iconBtn, marginLeft: 2 }} onClick={() => removeTableView(v.id)} title="このタブを削除">
+                      <X size={12} />
+                    </button>
+                  )}
+                </div>
+              ))}
+              <button style={styles.iconBtn} onClick={addTableView} title="タブを追加(今の表示列をコピーして新しいタブを作成)">
+                <Plus size={14} />
+              </button>
+            </div>
+          )}
+
+          {view === "table" && (
             <TableView
-              records={sorted}
+              records={tableSorted}
               allRecords={records}
               codes={codes}
               dealerGroups={dealerGroups}
+              kinds={kinds}
               tags={tags}
               customerOptions={customerOptions}
               contactOptions={contactOptions}
               chargeOptions={chargeOptions}
               modelOptions={modelOptions}
-              columnOrder={tableColumnOrder}
-              hiddenColumns={tableHiddenColumns}
+              columnOrder={activeColumnOrder}
+              hiddenColumns={activeHiddenColumns}
               columnWidths={tableColumnWidths}
-              columnSort={columnSort}
-              columnFilters={columnFilters}
-              onSetSort={(key, dir) => setColumnSort(dir ? { key, direction: dir } : null)}
-              onSetFilter={(key, conf) => setColumnFilters(prev => ({ ...prev, [key]: conf }))}
-              onClearFilter={(key) => setColumnFilters(prev => { const n = { ...prev }; delete n[key]; return n; })}
+              columnSort={activeColumnSort}
+              columnFilters={activeColumnFilters}
+              onSetSort={(key, dir) => setActiveColumnSort(dir ? { key, direction: dir } : null)}
+              onSetFilter={(key, conf) => setActiveColumnFilter(key, conf)}
+              onClearFilter={(key) => clearActiveColumnFilter(key)}
               onToggleHidden={toggleColumnHidden}
               onReorderColumns={reorderTableColumns}
               onSetColumnWidth={setColumnWidth}
@@ -1331,11 +1523,17 @@
               getStatusesForKind={getStatusesForKind}
               getColor={getColor}
               onSetOptionColor={setOptionColor}
+              onReorderCustomerOptions={reorderCustomerOptions}
+              onReorderContactOptions={reorderContactOptions}
+              onReorderChargeOptions={reorderChargeOptions}
+              onReorderModelOptions={reorderModelOptions}
+              onReorderTags={reorderTags}
+              onReorderKinds={reorderKindList}
             />
           )}
           {view === "board" && (
             <BoardView
-              records={filtered.filter(r => r.kind === boardRouteFilter)}
+              records={filtered.filter(r => boardRouteFilter === "校正" ? r.kind === "校正" : r.kind !== "校正")}
               codes={codes}
               tags={tags}
               boardRouteFilter={boardRouteFilter}
@@ -1385,6 +1583,9 @@
             <button style={styles.ghostBtn} onClick={() => setShowDealerGroupAdmin(true)}>
               <Tag size={14} /> 得意先グループ編集 ({dealerGroups.length}件)
             </button>
+            <button style={styles.ghostBtn} onClick={() => setShowKindAdmin(true)}>
+              <Layers size={14} /> 種別編集 ({kinds.length}件)
+            </button>
             <button style={styles.ghostBtn} onClick={exportBackup} title="全データをJSON形式で保存">
               <Download size={14} /> バックアップ出力
             </button>
@@ -1407,6 +1608,7 @@
               initial={editing}
               codes={codes}
               dealerGroups={dealerGroups}
+              kinds={kinds}
               tags={tags}
               getStatusesForKind={getStatusesForKind}
               customerOptions={customerOptions}
@@ -1418,6 +1620,26 @@
               onOpenEquip={(r) => setShowEquip(r)}
               getColor={getColor}
               onSetOptionColor={setOptionColor}
+              onReorderCustomerOptions={reorderCustomerOptions}
+              onReorderContactOptions={reorderContactOptions}
+              onReorderChargeOptions={reorderChargeOptions}
+              onReorderModelOptions={reorderModelOptions}
+              onReorderTags={reorderTags}
+              onReorderKinds={reorderKindList}
+              onReorderStatuses={reorderStatuses}
+            />
+          )}
+
+          {showQuickAdd && (
+            <QuickAddForm
+              customerOptions={customerOptions}
+              kinds={kinds}
+              getColor={getColor}
+              onSetOptionColor={setOptionColor}
+              onReorderCustomerOptions={reorderCustomerOptions}
+              onReorderKinds={reorderKindList}
+              onSave={(payload) => { saveRecord(payload); setShowQuickAdd(false); }}
+              onCancel={() => setShowQuickAdd(false)}
             />
           )}
 
@@ -1456,6 +1678,14 @@
             />
           )}
 
+          {showKindAdmin && (
+            <KindAdmin
+              kinds={kinds}
+              onSave={setKinds}
+              onClose={() => setShowKindAdmin(false)}
+            />
+          )}
+
           {showStatusAdmin && (
             <StatusAdmin
               statusesKousei={statusesKousei}
@@ -1472,8 +1702,8 @@
 
           {showColumnAdmin && (
             <TableColumnAdmin
-              columnOrder={tableColumnOrder}
-              hiddenColumns={tableHiddenColumns}
+              columnOrder={activeColumnOrder}
+              hiddenColumns={activeHiddenColumns}
               onReorder={reorderTableColumns}
               onToggleHidden={toggleColumnHidden}
               onClose={() => setShowColumnAdmin(false)}
@@ -1766,14 +1996,18 @@
       );
     }
 
-    function SelectCellPopover({ value, rect, options, colorFn, onSetColor, allowCreate, onSelect, onClose }) {
+    function SelectCellPopover({ value, rect, options, colorFn, onSetColor, allowCreate, onSelect, onClose, onReorder }) {
       const [query, setQuery] = useState("");
       const [paletteFor, setPaletteFor] = useState(null);
+      const [dragIdx, setDragIdx] = useState(null);
+      const [overIdx, setOverIdx] = useState(null);
       const inputRef = useRef(null);
       useEffect(() => { inputRef.current?.focus(); }, []);
 
       const filtered = options.filter(o => o.toLowerCase().includes(query.trim().toLowerCase()));
       const exactMatch = options.some(o => o.toLowerCase() === query.trim().toLowerCase());
+      // 検索中は表示順と実データの並びがズレるため、並び替えは「未検索・全件表示」の時だけ有効にする
+      const canReorder = !!onReorder && query.trim() === "" && filtered.length === options.length;
 
       const pick = (opt) => { onSelect(opt); onClose(); };
       const create = () => {
@@ -1802,7 +2036,24 @@
             />
             <div style={styles.cellPopoverList}>
               {filtered.map((opt, i) => (
-                <div key={opt} style={styles.cellPopoverOptionRow}>
+                <div
+                  key={opt}
+                  style={{ ...styles.cellPopoverOptionRow, ...(overIdx === i && dragIdx !== null && dragIdx !== i ? { background: "rgba(198,138,61,0.12)" } : {}) }}
+                  draggable={canReorder}
+                  onDragStart={() => setDragIdx(i)}
+                  onDragOver={(e) => { if (canReorder && dragIdx !== null) { e.preventDefault(); setOverIdx(i); } }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    if (canReorder && dragIdx !== null && dragIdx !== i) onReorder(dragIdx, i);
+                    setDragIdx(null); setOverIdx(null);
+                  }}
+                  onDragEnd={() => { setDragIdx(null); setOverIdx(null); }}
+                >
+                  {canReorder && (
+                    <span style={{ cursor: "grab", color: "var(--clr6b6658)", display: "flex", alignItems: "center" }} title="ドラッグで並び替え">
+                      <GripVertical size={13} />
+                    </span>
+                  )}
                   <div style={{ flex: 1, cursor: "pointer" }} onClick={() => pick(opt)}>
                     <span style={{ ...styles.pill, background: colorFn(opt, i) }}>{opt}</span>
                   </div>
@@ -1839,7 +2090,7 @@
       );
     }
 
-    function NotionPropertySelect({ value, options, colorFn, onSetColor, allowCreate, onSelect }) {
+    function NotionPropertySelect({ value, options, colorFn, onSetColor, allowCreate, onSelect, onReorder }) {
       const [open, setOpen] = useState(false);
       const [anchor, setAnchor] = useState(null);
 
@@ -1866,6 +2117,7 @@
               onSetColor={onSetColor}
               allowCreate={allowCreate}
               onSelect={onSelect}
+              onReorder={onReorder}
               onClose={() => setOpen(false)}
             />
           )}
@@ -1893,10 +2145,11 @@
     };
 
     function TableView({
-      records, allRecords, codes, dealerGroups, tags, customerOptions, contactOptions, chargeOptions, modelOptions, columnOrder, hiddenColumns, columnWidths,
+      records, allRecords, codes, dealerGroups, kinds, tags, customerOptions, contactOptions, chargeOptions, modelOptions, columnOrder, hiddenColumns, columnWidths,
       columnSort, columnFilters, onSetSort, onSetFilter, onClearFilter, onToggleHidden,
       onReorderColumns, onSetColumnWidth,
       onEdit, onDelete, onOpenEquip, onUpdateField, onUpdateDateTime, getStatusesForKind, getColor, onSetOptionColor,
+      onReorderCustomerOptions, onReorderContactOptions, onReorderChargeOptions, onReorderModelOptions, onReorderTags, onReorderKinds,
     }) {
       const [activeCell, setActiveCell] = useState(null);
       const [activeHeaderMenu, setActiveHeaderMenu] = useState(null); // { key: string, rect: DOMRect }
@@ -2222,11 +2475,12 @@
             <SelectCellPopover
               value={activeRecord.kind}
               rect={activeCell.rect}
-              options={KIND_OPTIONS}
+              options={kinds.map(k => k.name)}
               colorFn={(v) => getColor(v, 0)}
               onSetColor={onSetOptionColor}
               allowCreate={false}
               onSelect={(v) => onUpdateField(activeRecord.id, "kind", v)}
+              onReorder={onReorderKinds}
               onClose={() => setActiveCell(null)}
             />
           )}
@@ -2239,6 +2493,7 @@
               onSetColor={onSetOptionColor}
               allowCreate={true}
               onSelect={(v) => onUpdateField(activeRecord.id, "contactName", v)}
+              onReorder={onReorderContactOptions}
               onClose={() => setActiveCell(null)}
             />
           )}
@@ -2251,6 +2506,7 @@
               onSetColor={onSetOptionColor}
               allowCreate={true}
               onSelect={(v) => onUpdateField(activeRecord.id, "personInCharge", v)}
+              onReorder={onReorderChargeOptions}
               onClose={() => setActiveCell(null)}
             />
           )}
@@ -2263,6 +2519,7 @@
               onSetColor={onSetOptionColor}
               allowCreate={true}
               onSelect={(v) => onUpdateField(activeRecord.id, "model", v)}
+              onReorder={onReorderModelOptions}
               onClose={() => setActiveCell(null)}
             />
           )}
@@ -2301,6 +2558,7 @@
               onSetColor={onSetOptionColor}
               allowCreate={true}
               onSelect={(v) => onUpdateField(activeRecord.id, "customer", v)}
+              onReorder={onReorderCustomerOptions}
               onClose={() => setActiveCell(null)}
             />
           )}
@@ -2313,6 +2571,7 @@
               onSetColor={onSetOptionColor}
               allowCreate={false}
               onSelect={(v) => onUpdateField(activeRecord.id, "tag", v)}
+              onReorder={onReorderTags}
               onClose={() => setActiveCell(null)}
             />
           )}
@@ -2382,6 +2641,93 @@
     }
 
     // ================= Mobile Phone View (スマホ: 追加・確認中心) =================
+    // ================= Quick Add Form (クイック登録: 運転中・作業中でもサッと打てる最小構成) =================
+    // 拠点名(件名)・得意先・種別・内容の4項目だけに絞った軽量な新規登録フォーム。
+    // それ以外の項目(日程・型式・担当者など)は空のまま保存し、後で通常の編集画面から追記する想定。
+    function QuickAddForm({ customerOptions, kinds, getColor, onSave, onCancel, onReorderCustomerOptions, onReorderKinds, onSetOptionColor }) {
+      const [subject, setSubject] = useState("");
+      const [customer, setCustomer] = useState("");
+      const [kind, setKind] = useState("");
+      const [content, setContent] = useState("");
+      const inputRef = useRef(null);
+      useEffect(() => { inputRef.current?.focus(); }, []);
+
+      const submit = () => {
+        if (!subject.trim()) { alert("拠点名（件名）を入力してください"); return; }
+        if (!kind) { alert("種別を選択してください"); return; }
+        onSave({ subject: subject.trim(), customer, kind, content: content.trim() });
+      };
+
+      return (
+        <div style={styles.overlay} onClick={onCancel}>
+          <div style={{ ...styles.modal, maxWidth: 420 }} onClick={e => e.stopPropagation()}>
+            <div style={styles.modalHead}>
+              <div style={styles.modalTitle}>クイック登録</div>
+              <button style={styles.iconBtn} onClick={onCancel}><X size={16} /></button>
+            </div>
+            <div style={{ fontSize: 11.5, color: inkDim, marginBottom: 14, lineHeight: 1.5 }}>
+              最低限の項目だけで先に登録できます。日程や型式などの詳細は、あとで一覧から開いて追記してください。
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div>
+                <div style={{ fontSize: 11.5, color: inkDim, marginBottom: 4 }}>拠点名（件名）*</div>
+                <input
+                  ref={inputRef}
+                  style={styles.input}
+                  value={subject}
+                  placeholder="例: 大平モータース"
+                  onChange={e => setSubject(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submit(); }}
+                />
+              </div>
+
+              <div>
+                <div style={{ fontSize: 11.5, color: inkDim, marginBottom: 4 }}>種別*</div>
+                <NotionPropertySelect
+                  value={kind}
+                  options={kinds.map(k => k.name)}
+                  colorFn={(v) => getColor(v, 0)}
+                  onSetColor={onSetOptionColor}
+                  allowCreate={false}
+                  onSelect={setKind}
+                  onReorder={onReorderKinds}
+                />
+              </div>
+
+              <div>
+                <div style={{ fontSize: 11.5, color: inkDim, marginBottom: 4 }}>得意先</div>
+                <NotionPropertySelect
+                  value={customer}
+                  options={customerOptions}
+                  colorFn={(v) => getColor(v, customerOptions.indexOf(v))}
+                  onSetColor={onSetOptionColor}
+                  allowCreate={true}
+                  onSelect={setCustomer}
+                  onReorder={onReorderCustomerOptions}
+                />
+              </div>
+
+              <div>
+                <div style={{ fontSize: 11.5, color: inkDim, marginBottom: 4 }}>内容</div>
+                <textarea
+                  style={{ ...styles.input, minHeight: 80, resize: "vertical" }}
+                  value={content}
+                  placeholder="例: リフト下降不良、要点検"
+                  onChange={e => setContent(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div style={styles.modalActions}>
+              <button style={styles.ghostBtn} onClick={onCancel}>キャンセル</button>
+              <button style={styles.primaryBtn} onClick={submit}><Save size={14} /> 登録</button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     function MobilePhoneView({ records, allRecords, codes, tags, searchQuery, setSearchQuery, onAdd, onEdit, onOpenEquip, getColor, exportBackup, onImportBackupClick, gasUrl, syncing, fetchFromCloud, onOpenCloudConfig, calCursor, setCalCursor, calAxis, setCalAxis, theme, setTheme }) {
       const [showMenu, setShowMenu] = useState(false);
       const [mobileTab, setMobileTab] = useState("list"); // "list" | "calendar"
@@ -2815,15 +3161,22 @@
                   onDrop={(e) => { if (dragStatus !== null) onColHeaderDrop(status); else onColumnDrop(e, status); setOverStatus(null); }}
                 >
                   <div
-                    style={styles.boardColHead}
+                    style={{
+                      ...styles.boardColHead,
+                      background: getColor(status, statuses.indexOf(status)),
+                      borderBottom: "none",
+                      borderTopLeftRadius: 9, borderTopRightRadius: 9,
+                    }}
                     draggable
                     onDragStart={() => setDragStatus(status)}
                     onDragEnd={() => { setDragStatus(null); setOverStatus(null); }}
                     title="ドラッグして列を並び替え"
                   >
-                    <GripVertical size={13} color="var(--clr6b6658)" />
-                    <span style={styles.boardColTitle}>{status}</span>
-                    <span style={styles.boardColCount}>{byStatus.map[status]?.length || 0}</span>
+                    <GripVertical size={13} color={readableTextOn(getColor(status, statuses.indexOf(status)))} />
+                    <span style={{ ...styles.boardColTitle, color: readableTextOn(getColor(status, statuses.indexOf(status))) }}>
+                      {status}
+                    </span>
+                    <span style={{ ...styles.boardColCount, background: "rgba(0,0,0,0.18)", color: readableTextOn(getColor(status, statuses.indexOf(status))) }}>{byStatus.map[status]?.length || 0}</span>
                   </div>
                   <div style={styles.boardColBody}>
                     {(byStatus.map[status] || []).map(r => (
@@ -3004,9 +3357,9 @@
     }
 
     // ================= Compact Notion-Style Record Form with Smart Date Visibility =================
-    function RecordForm({ initial, codes, dealerGroups, tags, getStatusesForKind, customerOptions, contactOptions, chargeOptions, modelOptions, onCancel, onSave, onOpenEquip, getColor, onSetOptionColor }) {
+    function RecordForm({ initial, codes, dealerGroups, kinds, tags, getStatusesForKind, customerOptions, contactOptions, chargeOptions, modelOptions, onCancel, onSave, onOpenEquip, getColor, onSetOptionColor, onReorderCustomerOptions, onReorderContactOptions, onReorderChargeOptions, onReorderModelOptions, onReorderTags, onReorderKinds, onReorderStatuses }) {
       const [subject, setSubject] = useState(initial?.subject || "");
-      const [kind, setKind] = useState(initial?.kind || "校正");
+      const [kind, setKind] = useState(initial?.kind || "");
       const [code, setCode] = useState(initial?.code || "");
       const [customer, setCustomer] = useState(initial?.customer || "");
       const [contactName, setContactName] = useState(initial?.contactName || "");
@@ -3115,12 +3468,20 @@
           alert("件名（拠点名）を入力してください");
           return;
         }
+        if (!kind) {
+          alert("種別を選択してください");
+          return;
+        }
         onSave(buildRecordPayload());
       };
 
       const handleOpenEquipFromForm = () => {
         if (!subject.trim()) {
           alert("機器点検票を開く前に、件名（拠点名）を入力してください");
+          return;
+        }
+        if (!kind) {
+          alert("機器点検票を開く前に、種別を選択してください");
           return;
         }
         onSave(buildRecordPayload(), true);
@@ -3182,11 +3543,12 @@
                 <div className="prop-value">
                   <NotionPropertySelect
                     value={kind}
-                    options={KIND_OPTIONS}
+                    options={kinds.map(k => k.name)}
                     colorFn={(v) => getColor(v, 0)}
                     onSetColor={onSetOptionColor}
                     allowCreate={false}
                     onSelect={handleKindChange}
+                    onReorder={onReorderKinds}
                   />
                 </div>
               </div>
@@ -3201,6 +3563,7 @@
                     onSetColor={onSetOptionColor}
                     allowCreate={false}
                     onSelect={setTag}
+                    onReorder={onReorderTags}
                   />
                 </div>
               </div>
@@ -3215,6 +3578,7 @@
                     onSetColor={onSetOptionColor}
                     allowCreate={true}
                     onSelect={setContactName}
+                    onReorder={onReorderContactOptions}
                   />
                 </div>
               </div>
@@ -3229,6 +3593,7 @@
                     onSetColor={onSetOptionColor}
                     allowCreate={true}
                     onSelect={setCustomer}
+                    onReorder={onReorderCustomerOptions}
                   />
                 </div>
               </div>
@@ -3243,6 +3608,7 @@
                     onSetColor={onSetOptionColor}
                     allowCreate={true}
                     onSelect={setPersonInCharge}
+                    onReorder={onReorderChargeOptions}
                   />
                 </div>
               </div>
@@ -3257,6 +3623,7 @@
                     onSetColor={onSetOptionColor}
                     allowCreate={true}
                     onSelect={setModel}
+                    onReorder={onReorderModelOptions}
                   />
                 </div>
               </div>
@@ -3319,14 +3686,36 @@
                 </React.Fragment>
               )}
 
-              {(kind === "点検" || kind === "その他") && (
-                <div className="prop-row">
-                  <div className="prop-label"><CalendarIcon size={14} /> 実施予定日時</div>
-                  <div className="prop-value">
-                    <DateTimePicker dateValue={visitDate} timeValue={visitTime} onDateChange={setVisitDate} onTimeChange={setVisitTime} />
+              {kind !== "校正" && kind !== "修理・不具合対応" && (() => {
+                const kindDef = (kinds || []).find(k => k.name === kind);
+                const dateMode = kindDef ? kindDef.dateMode : "single";
+                if (dateMode === "double") {
+                  return (
+                    <React.Fragment>
+                      <div className="prop-row">
+                        <div className="prop-label"><CalendarIcon size={14} /> ①日程</div>
+                        <div className="prop-value">
+                          <DateTimePicker dateValue={visitDate} timeValue={visitTime} onDateChange={setVisitDate} onTimeChange={setVisitTime} />
+                        </div>
+                      </div>
+                      <div className="prop-row">
+                        <div className="prop-label"><CalendarIcon size={14} /> ②日程</div>
+                        <div className="prop-value">
+                          <DateTimePicker dateValue={workDate} timeValue={workTime} onDateChange={setWorkDate} onTimeChange={setWorkTime} />
+                        </div>
+                      </div>
+                    </React.Fragment>
+                  );
+                }
+                return (
+                  <div className="prop-row">
+                    <div className="prop-label"><CalendarIcon size={14} /> 実施予定日時</div>
+                    <div className="prop-value">
+                      <DateTimePicker dateValue={visitDate} timeValue={visitTime} onDateChange={setVisitDate} onTimeChange={setVisitTime} />
+                    </div>
                   </div>
-                </div>
-              )}
+                );
+              })()}
 
               <div className="prop-row">
                 <div className="prop-label"><Disc size={14} /> 手配状況</div>
@@ -3338,6 +3727,7 @@
                     onSetColor={onSetOptionColor}
                     allowCreate={false}
                     onSelect={setStatus}
+                    onReorder={onReorderStatuses ? (from, to) => onReorderStatuses(kind || "校正", from, to) : undefined}
                   />
                 </div>
               </div>
@@ -3675,6 +4065,98 @@
     // コード先頭4桁 → 得意先グループ(略称・正式名・得意先名)の対応表を編集する画面。
     // 日産系列の店舗網(1グループに複数コード)も、UDトラックスの拠点(1グループに複数コード)も、
     // 部品商のように得意先1件にコードが1つだけのケースも、同じ仕組みで扱える。
+    // ================= Kind Admin (種別編集) =================
+    // 種別(校正/修理・不具合対応/点検/その他、および追加された種別)ごとに、
+    // 日程が1段階か2段階かを設定する画面。「校正」は用語・ステータス表が専用のため、名前の変更・削除はできない。
+    function KindAdmin({ kinds, onSave, onClose }) {
+      const [rows, setRows] = useState(() => kinds.map(k => ({ ...k })));
+      const [error, setError] = useState("");
+
+      const updateRow = (id, field, value) => {
+        setRows(prev => prev.map(r => r.id === id ? { ...r, [field]: value } : r));
+      };
+
+      const addRow = () => {
+        setRows(prev => [...prev, { id: uid(), name: "", dateMode: "single" }]);
+      };
+
+      const removeRow = (id) => {
+        const target = rows.find(r => r.id === id);
+        if (target && target.name === "校正") { setError("「校正」は削除できません"); return; }
+        setRows(prev => prev.filter(r => r.id !== id));
+      };
+
+      const handleSave = () => {
+        const cleaned = rows.map(r => ({ ...r, name: r.name.trim() })).filter(r => r.name);
+        if (!cleaned.some(r => r.name === "校正")) {
+          setError("「校正」は削除できません");
+          return;
+        }
+        const names = cleaned.map(r => r.name);
+        const dup = names.find((n, i) => names.indexOf(n) !== i);
+        if (dup) {
+          setError(`種別名「${dup}」が重複しています`);
+          return;
+        }
+        setError("");
+        onSave(cleaned);
+        onClose();
+      };
+
+      return (
+        <div style={styles.overlay} onClick={onClose}>
+          <div style={{ ...styles.modal, maxWidth: 560 }} onClick={e => e.stopPropagation()}>
+            <div style={styles.modalHead}>
+              <div style={styles.modalTitle}>種別編集</div>
+              <button style={styles.iconBtn} onClick={onClose}><X size={16} /></button>
+            </div>
+            <div style={{ fontSize: 11.5, color: inkDim, marginBottom: 12, lineHeight: 1.5 }}>
+              「1段階」は実施予定日時が1つだけ(点検・その他と同じ型)、「2段階」は①日程→②日程の2つを持ち、日程を過ぎると自動でステータスが進みます(修理・不具合対応と同じ型)。
+              「校正」だけは専用の用語(事前点検/本校正)とステータス表を使うため、名前の変更・削除はできません。
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: "50vh", overflowY: "auto" }}>
+              {rows.map(r => {
+                const locked = r.name === "校正";
+                return (
+                  <div key={r.id} style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <input
+                      style={{ ...styles.input, flex: 1 }}
+                      placeholder="種別名"
+                      value={r.name}
+                      disabled={locked}
+                      onChange={e => updateRow(r.id, "name", e.target.value)}
+                    />
+                    <select
+                      style={{ ...styles.input, width: 110 }}
+                      value={locked ? "double" : r.dateMode}
+                      disabled={locked}
+                      onChange={e => updateRow(r.id, "dateMode", e.target.value)}
+                    >
+                      <option value="single">1段階</option>
+                      <option value="double">2段階</option>
+                    </select>
+                    <button style={styles.iconBtn} onClick={() => removeRow(r.id)} disabled={locked} title={locked ? "校正は削除できません" : "削除"}>
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+            {error && <div style={styles.importError}>{error}</div>}
+            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 12 }}>
+              <button style={styles.ghostBtn} onClick={addRow}>
+                <Plus size={14} /> 追加
+              </button>
+              <div style={styles.modalActions}>
+                <button style={styles.ghostBtn} onClick={onClose}>キャンセル</button>
+                <button style={styles.primaryBtn} onClick={handleSave}><Save size={14} /> 保存</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     function DealerGroupAdmin({ groups, onSave, onClose }) {
       const [rows, setRows] = useState(() => groups.map(g => ({ ...g })));
       const [error, setError] = useState("");
