@@ -4214,6 +4214,7 @@
 
     function DateTimePicker({ dateValue, timeValue, onDateChange, onTimeChange }) {
       const [open, setOpen] = useState(false);
+      const [anchorRect, setAnchorRect] = useState(null);
       const [cursor, setCursor] = useState(() => {
         const base = dateValue ? new Date(dateValue + "T00:00:00") : new Date();
         return { y: base.getFullYear(), m: base.getMonth() };
@@ -4245,7 +4246,11 @@
 
       return (
         <div style={{ position: "relative", display: "flex", gap: 6, alignItems: "center" }}>
-          <button type="button" style={styles.dtDateBtnNotion} onClick={() => setOpen(o => !o)}>
+          <button
+            type="button"
+            style={styles.dtDateBtnNotion}
+            onClick={(e) => { setAnchorRect(e.currentTarget.getBoundingClientRect()); setOpen(o => !o); }}
+          >
             <CalendarIcon size={12} /> {dateValue ? fmtJP(dateValue) : "未入力"}
           </button>
           <input
@@ -4258,7 +4263,7 @@
           {open && (
             <React.Fragment>
               <div style={styles.dtBackdrop} onClick={() => setOpen(false)} />
-              <div style={styles.dtPopup} onClick={e => e.stopPropagation()}>
+              <div style={{ ...styles.dtPopup, ...popoverStyleFor(anchorRect, 230, 320) }} onClick={e => e.stopPropagation()}>
                 <div style={styles.calNav}>
                   <button type="button" style={styles.iconBtn} onClick={() => move(-1)}><ChevronLeft size={14} /></button>
                   <div style={styles.calMonthLabel}>{cursor.y}年 {cursor.m + 1}月</div>
@@ -5683,8 +5688,8 @@
       },
       dtBackdrop: { position: "fixed", inset: 0, zIndex: 60 },
       dtPopup: {
-        position: "absolute", top: "calc(100% + 6px)", left: 0, zIndex: 61, background: "var(--clr1a1712)",
-        border: `1px solid ${rule}`, borderRadius: 10, padding: 12, width: 230,
+        position: "fixed", zIndex: 61, background: "var(--clr1a1712)",
+        border: `1px solid ${rule}`, borderRadius: 10, padding: 12,
         boxShadow: "0 10px 30px rgba(0,0,0,0.4)",
       },
       dtGrid: { display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 3, marginTop: 8 },
