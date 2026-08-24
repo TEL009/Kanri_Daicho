@@ -10,6 +10,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js" crossorigin></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js" crossorigin></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.25.6/babel.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <!-- Google Fontsは環境によって読み込みがブロックされる場合があります。その場合は自動でsans-serif/monospaceにフォールバックします -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -537,6 +538,15 @@
       return time ? `${datePart} ${time}` : datePart;
     };
 
+    // 開始日〜終了日(異なる場合のみ「〇〇日～△△日」表示、同じ/未入力ならfmtJPと同じ)
+    const fmtJPRange = (startDate, time, endDate) => {
+      if (!startDate) return "—";
+      const start = fmtJP(startDate);
+      if (!endDate || endDate === startDate) return time ? `${start} ${time}` : start;
+      const end = fmtJP(endDate);
+      return time ? `${start}〜${end} ${time}` : `${start}〜${end}`;
+    };
+
     const monthMatrix = (year, month) => {
       const first = new Date(year, month, 1);
       const startDay = first.getDay();
@@ -922,7 +932,7 @@
         if (rec.id) {
           targetRecord = { ...rec, status: rec.status || defaultStatus };
         } else {
-          targetRecord = { ...rec, id: uid(), kind: currentKind, status: rec.status || defaultStatus, equipmentSheets: rec.equipmentSheets || [], attachments: rec.attachments || [] };
+          targetRecord = { ...rec, id: uid(), kind: currentKind, status: rec.status || defaultStatus, equipmentSheets: rec.equipmentSheets || [], attachments: rec.attachments || [], receivedDate: rec.receivedDate || toISODate(new Date()) };
         }
         targetRecord = computeAutoStatus(targetRecord, validStatuses, kinds);
         nextRecords = rec.id ? records.map(r => r.id === rec.id ? targetRecord : r) : [...records, targetRecord];
@@ -969,11 +979,13 @@
         autoSyncToCloud(nextRecords);
       };
 
-      const updateRecordDateTime = (id, dateField, dateValue, timeField, timeValue) => {
+      const updateRecordDateTime = (id, dateField, dateValue, timeField, timeValue, endDateField, endDateValue) => {
         pushUndo();
         const nextRecords = records.map(r => {
           if (r.id !== id) return r;
-          const updated = { ...r, [dateField]: toISODate(dateValue), [timeField]: timeValue };
+          const patch = { [dateField]: toISODate(dateValue), [timeField]: timeValue };
+          if (endDateField) patch[endDateField] = toISODate(endDateValue) || "";
+          const updated = { ...r, ...patch };
           return computeAutoStatus(updated, getStatusesForKind(updated.kind || "校正"), kinds);
         });
         setRecords(nextRecords);
@@ -1275,6 +1287,136 @@
         URL.revokeObjectURL(url);
       };
 
+      // カレンダーの内容を「件名・開始日時・終了日時・場所・メモ・詳細」形式のxlsxで書き出す
+      // 開始日時: ①日程(事前点検/訪問)を優先、無ければ②日程(本校正/作業)。終了日時: 開始日時と同じ
+      const exportScheduleXlsx = () => {
+        if (typeof XLSX === "undefined") {
+          alert("エクスポート機能の読み込みに失敗しました。通信環境を確認して再読み込みしてください。");
+          return;
+        }
+        const fmtDT = (dateStr, timeStr) => {
+          if (!dateStr) return "";
+          const d = new Date(dateStr + "T00:00:00");
+          if (isNaN(d.getTime())) return "";
+          const datePart = `${d.getFullYear()}/${pad(d.getMonth() + 1)}/${pad(d.getDate())}`;
+          return timeStr ? `${datePart} ${timeStr}` : datePart;
+        };
+
+        const rows = records
+          .map(r => {
+            let startDate = r.precheckDate || r.visitDate;
+            let startTime = r.precheckDate ? r.precheckTime : r.visitTime;
+            let endDate = r.precheckDate ? r.precheckEndDate : r.visitEndDate;
+            if (!startDate) {
+              startDate = r.honkouseiDate || r.workDate;
+              startTime = r.honkouseiDate ? r.honkouseiTime : r.workTime;
+              endDate = r.honkouseiDate ? r.honkouseiEndDate : r.workEndDate;
+            }
+            if (!startDate) return null;
+            const dt = fmtDT(startDate, startTime);
+            const dtEnd = endDate && endDate !== startDate ? fmtDT(endDate, startTime) : dt;
+            return {
+              "件名": (r.subject || "") + (r.tag ? `_${r.tag}` : ""),
+              "開始日時": dt,
+              "終了日時": dtEnd,
+              "場所": "",
+              "メモ・詳細": r.content || "",
+              "ID": r.id,
+            };
+          })
+          .filter(Boolean);
+
+        if (rows.length === 0) {
+          alert("書き出せる日程がありません");
+          return;
+        }
+
+        const ws = XLSX.utils.json_to_sheet(rows, { header: ["件名", "開始日時", "終了日時", "場所", "メモ・詳細", "ID"] });
+        ws["!cols"] = [{ wch: 24 }, { wch: 18 }, { wch: 18 }, { wch: 24 }, { wch: 30 }, { wch: 16 }];
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
+        XLSX.writeFile(wb, `schedule-${toISODate(new Date())}.xlsx`);
+      };
+
+      // カレンダーの内容をiCalendar(.ics)形式で書き出す。Outlook/Googleカレンダー/Appleカレンダーがダブルクリックだけで
+      // 取り込める標準形式のため、VBAマクロなしで済む。各予定に固有UIDを持たせているので、
+      // 同じファイルを再インポートしても重複登録されにくい(同一予定の更新として扱われる)。
+      const escapeIcsText = (s) => String(s || "")
+        .replace(/\\/g, "\\\\")
+        .replace(/;/g, "\\;")
+        .replace(/,/g, "\\,")
+        .replace(/\r?\n/g, "\\n");
+
+      const foldIcsLine = (line) => {
+        // RFC5545: 1行は75オクテット以内が推奨。超える場合は折り返し行の先頭に半角スペースを入れる
+        if (line.length <= 75) return line;
+        let result = line.slice(0, 75);
+        let rest = line.slice(75);
+        while (rest.length > 0) {
+          result += "\r\n " + rest.slice(0, 74);
+          rest = rest.slice(74);
+        }
+        return result;
+      };
+
+      const exportScheduleIcs = () => {
+        const pad2 = (n) => String(n).padStart(2, "0");
+        const nowUtc = new Date();
+        const dtstamp = `${nowUtc.getUTCFullYear()}${pad2(nowUtc.getUTCMonth() + 1)}${pad2(nowUtc.getUTCDate())}T${pad2(nowUtc.getUTCHours())}${pad2(nowUtc.getUTCMinutes())}${pad2(nowUtc.getUTCSeconds())}Z`;
+
+        const lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//koeisei-shuuri-daichou//JP", "CALSCALE:GREGORIAN"];
+        let count = 0;
+
+        for (const r of records) {
+          let startDate = r.precheckDate || r.visitDate;
+          let startTime = r.precheckDate ? r.precheckTime : r.visitTime;
+          let endDateField = r.precheckDate ? r.precheckEndDate : r.visitEndDate;
+          if (!startDate) {
+            startDate = r.honkouseiDate || r.workDate;
+            startTime = r.honkouseiDate ? r.honkouseiTime : r.workTime;
+            endDateField = r.honkouseiDate ? r.honkouseiEndDate : r.workEndDate;
+          }
+          if (!startDate) continue;
+          const [y, mo, da] = startDate.split("-");
+          const hasRange = endDateField && endDateField !== startDate;
+          const [ey, emo, eda] = hasRange ? endDateField.split("-") : [y, mo, da];
+
+          lines.push("BEGIN:VEVENT");
+          lines.push(`UID:${r.id}@koeisei-shuuri-daichou`);
+          lines.push(`DTSTAMP:${dtstamp}`);
+          if (startTime) {
+            const [hh, mm] = startTime.split(":");
+            lines.push(`DTSTART:${y}${mo}${da}T${pad2(hh)}${pad2(mm)}00`);
+            lines.push(`DTEND:${ey}${emo}${eda}T${pad2(hh)}${pad2(mm)}00`);
+          } else {
+            // 時刻未入力の場合は終日予定として扱う(DTENDは仕様上、最終日の翌日を指定)
+            const endBase = new Date(Number(ey), Number(emo) - 1, Number(eda) + 1);
+            const endStr = `${endBase.getFullYear()}${pad2(endBase.getMonth() + 1)}${pad2(endBase.getDate())}`;
+            lines.push(`DTSTART;VALUE=DATE:${y}${mo}${da}`);
+            lines.push(`DTEND;VALUE=DATE:${endStr}`);
+          }
+          const summaryText = (r.subject || "（無題）") + (r.tag ? `_${r.tag}` : "");
+          lines.push(foldIcsLine(`SUMMARY:${escapeIcsText(summaryText)}`));
+          if (r.content) lines.push(foldIcsLine(`DESCRIPTION:${escapeIcsText(r.content)}`));
+          lines.push("END:VEVENT");
+          count++;
+        }
+        lines.push("END:VCALENDAR");
+
+        if (count === 0) {
+          alert("書き出せる日程がありません");
+          return;
+        }
+
+        const blob = new Blob([lines.join("\r\n")], { type: "text/calendar;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `schedule-${toISODate(new Date())}.ics`;
+        a.click();
+        URL.revokeObjectURL(url);
+      };
+
       const importBackup = (e) => {
         const file = e.target.files?.[0];
         if (!file) return;
@@ -1387,6 +1529,8 @@
               onOpenEquip={(r) => setShowEquip(r)}
               getColor={getColor}
               exportBackup={exportBackup}
+              exportScheduleXlsx={exportScheduleXlsx}
+              exportScheduleIcs={exportScheduleIcs}
               onImportBackupClick={() => backupInputRef.current?.click()}
               gasUrl={gasUrl}
               syncing={syncing}
@@ -1653,6 +1797,12 @@
             <button style={styles.ghostBtn} onClick={exportBackup} title="全データをJSON形式で保存">
               <Download size={14} /> バックアップ出力
             </button>
+            <button style={styles.ghostBtn} onClick={exportScheduleXlsx} title="日程をExcel(件名・開始日時・終了日時・場所・メモ)で書き出す">
+              <FileText size={14} /> 日程をExcel出力
+            </button>
+            <button style={styles.ghostBtn} onClick={exportScheduleIcs} title="日程をiCalendar(.ics)形式で書き出す。Outlook/Googleカレンダー等でダブルクリックだけで取り込めます">
+              <CalendarIcon size={14} /> 日程をics出力
+            </button>
             <button style={styles.ghostBtn} onClick={() => backupInputRef.current?.click()} title="JSONファイルからデータを復元">
               <Upload size={14} /> バックアップ復元
             </button>
@@ -1693,6 +1843,7 @@
               onReorderStatuses={reorderStatuses}
               onUploadAttachment={uploadAttachment}
               onSaveAttachments={saveAttachments}
+              onUpdateField={updateRecordField}
             />
           )}
 
@@ -2044,9 +2195,12 @@
       );
     }
 
-    function DateTimeCellPopover({ initialDate, initialTime, rect, onSave, onClose }) {
+    function DateTimeCellPopover({ initialDate, initialTime, initialEndDate, hasEndDateField, rect, onSave, onClose }) {
       const [date, setDate] = useState(initialDate || "");
       const [time, setTime] = useState(initialTime || "");
+      const [endDate, setEndDate] = useState(initialEndDate || "");
+      const [showEndDate, setShowEndDate] = useState(!!initialEndDate);
+      const [activeField, setActiveField] = useState("start"); // "start" | "end"
       const [cursor, setCursor] = useState(() => {
         const base = initialDate ? new Date(initialDate + "T00:00:00") : new Date();
         return { y: base.getFullYear(), m: base.getMonth() };
@@ -2061,18 +2215,38 @@
       };
 
       const pickDate = (d) => {
-        const nextDate = toISODate(d);
-        setDate(nextDate);
-        onSave(nextDate, time);
+        const iso = toISODate(d);
+        if (activeField === "end") {
+          setEndDate(iso);
+          onSave(date, time, iso);
+        } else {
+          setDate(iso);
+          let nextEnd = endDate;
+          if (endDate && iso > endDate) { nextEnd = ""; setEndDate(""); }
+          onSave(iso, time, nextEnd);
+          if (showEndDate) setActiveField("end");
+        }
       };
 
       const changeTime = (t) => {
         setTime(t);
-        onSave(date, t);
+        onSave(date, t, endDate);
+      };
+
+      const toggleEndDate = () => {
+        if (showEndDate) {
+          setEndDate("");
+          setShowEndDate(false);
+          setActiveField("start");
+          onSave(date, time, "");
+        } else {
+          setShowEndDate(true);
+          setActiveField("end");
+        }
       };
 
       const clearAll = () => {
-        onSave("", "");
+        onSave("", "", "");
         onClose();
       };
 
@@ -2081,7 +2255,7 @@
       return (
         <React.Fragment>
           <div style={styles.cellPopoverBackdrop} onClick={onClose} />
-          <div style={{ ...styles.cellPopover, ...popoverStyleFor(rect, 240, 340) }} onClick={e => e.stopPropagation()}>
+          <div style={{ ...styles.cellPopover, ...popoverStyleFor(rect, 240, hasEndDateField ? 400 : 340) }} onClick={e => e.stopPropagation()}>
             <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 6 }}>
               <input
                 type="time"
@@ -2107,7 +2281,9 @@
               {cells.map((d, i) => {
                 if (!d) return <div key={i} style={styles.dtCellEmpty} />;
                 const iso = toISODate(d);
-                const selected = iso === date;
+                const isStart = iso === date;
+                const isEnd = showEndDate && iso === endDate;
+                const inRange = showEndDate && date && iso > date && iso < endDate;
                 const isToday = iso === todayIso;
                 return (
                   <div
@@ -2115,7 +2291,9 @@
                     style={{
                       ...styles.dtCell,
                       ...(isToday ? styles.dtCellToday : {}),
-                      ...(selected ? styles.dtCellSelected : {})
+                      ...(inRange ? styles.dtCellInRange : {}),
+                      ...(isStart ? styles.dtCellSelected : {}),
+                      ...(isEnd ? styles.dtCellSelectedEnd : {}),
                     }}
                     onClick={() => pickDate(d)}
                   >
@@ -2128,6 +2306,38 @@
               <button type="button" style={{ ...styles.dtTodayBtn, flex: 1, marginTop: 0 }} onClick={() => pickDate(new Date())}>今日</button>
               <button type="button" style={{ ...styles.dtTodayBtn, flex: 1, marginTop: 0, color: "var(--clrc9573f)" }} onClick={clearAll}>クリア</button>
             </div>
+
+            {hasEndDateField && (
+              <React.Fragment>
+                <div style={styles.dtEndDateToggleRow}>
+                  <span style={{ fontSize: 12.5, color: "var(--clre9e4d8)" }}>終了日</span>
+                  <label style={styles.toggleSwitch}>
+                    <input type="checkbox" checked={showEndDate} onChange={toggleEndDate} style={{ display: "none" }} />
+                    <span style={{ ...styles.toggleTrack, ...(showEndDate ? styles.toggleTrackOn : {}) }}>
+                      <span style={{ ...styles.toggleThumb, ...(showEndDate ? styles.toggleThumbOn : {}) }} />
+                    </span>
+                  </label>
+                </div>
+                {showEndDate && (
+                  <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+                    <button
+                      type="button"
+                      style={{ ...styles.dtFieldTab, ...(activeField === "start" ? styles.dtFieldTabActive : {}) }}
+                      onClick={() => setActiveField("start")}
+                    >
+                      開始: {date ? fmtJP(date) : "未入力"}
+                    </button>
+                    <button
+                      type="button"
+                      style={{ ...styles.dtFieldTab, ...(activeField === "end" ? styles.dtFieldTabActive : {}) }}
+                      onClick={() => setActiveField("end")}
+                    >
+                      終了: {endDate ? fmtJP(endDate) : "未入力"}
+                    </button>
+                  </div>
+                )}
+              </React.Fragment>
+            )}
           </div>
         </React.Fragment>
       );
@@ -2272,12 +2482,12 @@
       serialYear: { label: "製造番号・年式", editable: "text" },
       content: { label: "内容", editable: "textarea" },
       receivedDate: { label: "受付日時", editable: "datetime", dateField: "receivedDate", timeField: "receivedTime" },
-      visitDate: { label: "対応日程(訪問)", editable: "datetime", dateField: "visitDate", timeField: "visitTime" },
-      workDate: { label: "作業日程(修理)", editable: "datetime", dateField: "workDate", timeField: "workTime" },
+      visitDate: { label: "対応日程(訪問)", editable: "datetime", dateField: "visitDate", timeField: "visitTime", endDateField: "visitEndDate" },
+      workDate: { label: "作業日程(修理)", editable: "datetime", dateField: "workDate", timeField: "workTime", endDateField: "workEndDate" },
       tag: { label: "NSS", editable: "select-tag" },
       code: { label: "コード", editable: null },
-      precheckDate: { label: "事前点検日時", editable: "datetime", dateField: "precheckDate", timeField: "precheckTime" },
-      honkouseiDate: { label: "本校正日時", editable: "datetime", dateField: "honkouseiDate", timeField: "honkouseiTime" },
+      precheckDate: { label: "事前点検日時", editable: "datetime", dateField: "precheckDate", timeField: "precheckTime", endDateField: "precheckEndDate" },
+      honkouseiDate: { label: "本校正日時", editable: "datetime", dateField: "honkouseiDate", timeField: "honkouseiTime", endDateField: "honkouseiEndDate" },
       status: { label: "手配状況", editable: "select-status" },
     };
 
@@ -2376,15 +2586,15 @@
           case "serialYear": return r.serialYear || "";
           case "content": return r.content || "";
           case "receivedDate": return r.receivedDate ? `${fmtJP(r.receivedDate, r.receivedTime)}` : "";
-          case "visitDate": return r.visitDate ? `${fmtJP(r.visitDate, r.visitTime)}` : "";
-          case "workDate": return r.workDate ? `${fmtJP(r.workDate, r.workTime)}` : "";
+          case "visitDate": return r.visitDate ? fmtJPRange(r.visitDate, r.visitTime, r.visitEndDate) : "";
+          case "workDate": return r.workDate ? fmtJPRange(r.workDate, r.workTime, r.workEndDate) : "";
           case "tag": return r.tag || "";
           case "code": {
             const dealer = r.code ? dealerFor(r.code, dealerGroups) : null;
             return r.code ? `${r.code}${dealer ? " " + dealer.name : ""}` : "";
           }
-          case "precheckDate": return r.precheckDate ? `${fmtJP(r.precheckDate, r.precheckTime)}` : "";
-          case "honkouseiDate": return r.honkouseiDate ? `${fmtJP(r.honkouseiDate, r.honkouseiTime)}` : "";
+          case "precheckDate": return r.precheckDate ? fmtJPRange(r.precheckDate, r.precheckTime, r.precheckEndDate) : "";
+          case "honkouseiDate": return r.honkouseiDate ? fmtJPRange(r.honkouseiDate, r.honkouseiTime, r.honkouseiEndDate) : "";
           case "status": return r.status || "";
           default: return "";
         }
@@ -2476,9 +2686,9 @@
           case "receivedDate":
             return r.receivedDate ? fmtJP(r.receivedDate, r.receivedTime) : <span className="ledger-empty-plus">＋</span>;
           case "visitDate":
-            return r.visitDate ? fmtJP(r.visitDate, r.visitTime) : <span className="ledger-empty-plus">＋</span>;
+            return r.visitDate ? fmtJPRange(r.visitDate, r.visitTime, r.visitEndDate) : <span className="ledger-empty-plus">＋</span>;
           case "workDate":
-            return r.workDate ? fmtJP(r.workDate, r.workTime) : <span className="ledger-empty-plus">＋</span>;
+            return r.workDate ? fmtJPRange(r.workDate, r.workTime, r.workEndDate) : <span className="ledger-empty-plus">＋</span>;
           case "tag":
             return r.tag
               ? <span style={{ ...styles.pill, background: getColor(r.tag, tags.indexOf(r.tag)) }}>{r.tag}</span>
@@ -2501,9 +2711,9 @@
               </span>
             );
           case "precheckDate":
-            return r.precheckDate ? fmtJP(r.precheckDate, r.precheckTime) : <span className="ledger-empty-plus">＋</span>;
+            return r.precheckDate ? fmtJPRange(r.precheckDate, r.precheckTime, r.precheckEndDate) : <span className="ledger-empty-plus">＋</span>;
           case "honkouseiDate":
-            return r.honkouseiDate ? fmtJP(r.honkouseiDate, r.honkouseiTime) : <span className="ledger-empty-plus">＋</span>;
+            return r.honkouseiDate ? fmtJPRange(r.honkouseiDate, r.honkouseiTime, r.honkouseiEndDate) : <span className="ledger-empty-plus">＋</span>;
           case "status":
             const currentStatuses = getStatusesForKind(r.kind || "校正");
             return r.status
@@ -2745,8 +2955,18 @@
             <DateTimeCellPopover
               initialDate={activeRecord[TABLE_COLUMN_DEFS[activeCell.field].dateField]}
               initialTime={activeRecord[TABLE_COLUMN_DEFS[activeCell.field].timeField]}
+              initialEndDate={TABLE_COLUMN_DEFS[activeCell.field].endDateField ? activeRecord[TABLE_COLUMN_DEFS[activeCell.field].endDateField] : ""}
+              hasEndDateField={!!TABLE_COLUMN_DEFS[activeCell.field].endDateField}
               rect={activeCell.rect}
-              onSave={(d, t) => onUpdateDateTime(activeRecord.id, TABLE_COLUMN_DEFS[activeCell.field].dateField, d, TABLE_COLUMN_DEFS[activeCell.field].timeField, t)}
+              onSave={(d, t, ed) => onUpdateDateTime(
+                activeRecord.id,
+                TABLE_COLUMN_DEFS[activeCell.field].dateField,
+                d,
+                TABLE_COLUMN_DEFS[activeCell.field].timeField,
+                t,
+                TABLE_COLUMN_DEFS[activeCell.field].endDateField,
+                ed
+              )}
               onClose={() => setActiveCell(null)}
             />
           )}
@@ -2929,7 +3149,7 @@
       );
     }
 
-    function MobilePhoneView({ records, allRecords, codes, tags, searchQuery, setSearchQuery, onAdd, onEdit, onOpenEquip, getColor, exportBackup, onImportBackupClick, gasUrl, syncing, fetchFromCloud, onOpenCloudConfig, calCursor, setCalCursor, calAxis, setCalAxis, theme, setTheme }) {
+    function MobilePhoneView({ records, allRecords, codes, tags, searchQuery, setSearchQuery, onAdd, onEdit, onOpenEquip, getColor, exportBackup, exportScheduleXlsx, exportScheduleIcs, onImportBackupClick, gasUrl, syncing, fetchFromCloud, onOpenCloudConfig, calCursor, setCalCursor, calAxis, setCalAxis, theme, setTheme }) {
       const [showMenu, setShowMenu] = useState(false);
       const [mobileTab, setMobileTab] = useState("list"); // "list" | "calendar"
 
@@ -3077,6 +3297,14 @@
                   <Download size={16} /> バックアップ出力
                 </button>
                 <button style={{ width: "100%", textAlign: "left", padding: "12px 6px", background: "transparent", border: "none", color: "var(--clre9e4d8)", fontSize: 14, display: "flex", alignItems: "center", gap: 10 }}
+                  onClick={() => { setShowMenu(false); exportScheduleXlsx(); }}>
+                  <FileText size={16} /> 日程をExcel出力
+                </button>
+                <button style={{ width: "100%", textAlign: "left", padding: "12px 6px", background: "transparent", border: "none", color: "var(--clre9e4d8)", fontSize: 14, display: "flex", alignItems: "center", gap: 10 }}
+                  onClick={() => { setShowMenu(false); exportScheduleIcs(); }}>
+                  <CalendarIcon size={16} /> 日程をics出力
+                </button>
+                <button style={{ width: "100%", textAlign: "left", padding: "12px 6px", background: "transparent", border: "none", color: "var(--clre9e4d8)", fontSize: 14, display: "flex", alignItems: "center", gap: 10 }}
                   onClick={() => { setShowMenu(false); onImportBackupClick(); }}>
                   <Upload size={16} /> バックアップ復元
                 </button>
@@ -3214,6 +3442,8 @@
                       <div style={styles.calItems}>
                         {items.map(({ r, phase }) => {
                           const t = phase === "precheck" ? (r.precheckTime || r.visitTime) : (r.honkouseiTime || r.workTime);
+                          const endD = phase === "precheck" ? (r.precheckDate ? r.precheckEndDate : r.visitEndDate) : (r.honkouseiDate ? r.honkouseiEndDate : r.workEndDate);
+                          const startD = phase === "precheck" ? (r.precheckDate || r.visitDate) : (r.honkouseiDate || r.workDate);
                           return (
                             <div
                               key={r.id + ":" + phase}
@@ -3228,6 +3458,9 @@
                               )}
                               {t && <span style={styles.calItemTime}>{t} </span>}
                               {r.subject || "（無題）"}
+                              {endD && endD !== startD && (
+                                <span style={{ ...styles.calItemTime, marginLeft: 3 }}>〜{Number(endD.slice(5, 7))}/{Number(endD.slice(8, 10))}</span>
+                              )}
                               {r.tag && (
                                 <span style={{
                                   marginLeft: 4, fontSize: 9, padding: "0 4px", borderRadius: 3,
@@ -3259,6 +3492,8 @@
                 <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                   {(byDate[selectedIso] || []).map(({ r, phase }) => {
                     const t = phase === "precheck" ? (r.precheckTime || r.visitTime) : (r.honkouseiTime || r.workTime);
+                    const endD = phase === "precheck" ? (r.precheckDate ? r.precheckEndDate : r.visitEndDate) : (r.honkouseiDate ? r.honkouseiEndDate : r.workEndDate);
+                    const startD = phase === "precheck" ? (r.precheckDate || r.visitDate) : (r.honkouseiDate || r.workDate);
                     return (
                       <div
                         key={r.id + ":" + phase}
@@ -3273,6 +3508,9 @@
                           )}
                           {t && <span style={styles.calItemTime}>{t}</span>}
                           <span style={{ fontSize: 13, fontWeight: 600, color: "var(--clre9e4d8)" }}>{r.subject || "（無題）"}</span>
+                          {endD && endD !== startD && (
+                            <span style={styles.calItemTime}>〜{Number(endD.slice(5, 7))}/{Number(endD.slice(8, 10))}</span>
+                          )}
                           {r.tag && (
                             <span style={{
                               fontSize: 10, padding: "1px 6px", borderRadius: 4,
@@ -3647,7 +3885,7 @@
     }
 
     // ================= Compact Notion-Style Record Form with Smart Date Visibility =================
-    function RecordForm({ initial, codes, dealerGroups, kinds, tags, getStatusesForKind, customerOptions, contactOptions, chargeOptions, modelOptions, onCancel, onSave, onOpenEquip, getColor, onSetOptionColor, onReorderCustomerOptions, onReorderContactOptions, onReorderChargeOptions, onReorderModelOptions, onReorderTags, onReorderKinds, onReorderStatuses, onUploadAttachment, onSaveAttachments }) {
+    function RecordForm({ initial, codes, dealerGroups, kinds, tags, getStatusesForKind, customerOptions, contactOptions, chargeOptions, modelOptions, onCancel, onSave, onOpenEquip, getColor, onSetOptionColor, onReorderCustomerOptions, onReorderContactOptions, onReorderChargeOptions, onReorderModelOptions, onReorderTags, onReorderKinds, onReorderStatuses, onUploadAttachment, onSaveAttachments, onUpdateField }) {
       const [subject, setSubject] = useState(initial?.subject || "");
       const [kind, setKind] = useState(initial?.kind || "");
       const [code, setCode] = useState(initial?.code || "");
@@ -3663,26 +3901,49 @@
       const [attachments, setAttachments] = useState(initial?.attachments || []);
       const [uploadingCount, setUploadingCount] = useState(0);
       const attachInputRef = useRef(null);
+      const estimateInputRef = useRef(null);
+      const [uploadingEstimate, setUploadingEstimate] = useState(false);
 
-      const handleFilesSelected = async (fileList) => {
+      const estimateAttachments = attachments.filter(a => a.category === "estimate");
+      const otherAttachments = attachments.filter(a => a.category !== "estimate");
+
+      const handleFilesSelected = async (fileList, category) => {
         if (!initial?.id) {
           alert("添付ファイルは、一度保存してから追加できます。先に「保存」を押してください。");
           return;
         }
         const files = Array.from(fileList || []);
         if (files.length === 0) return;
-        setUploadingCount(files.length);
+        const isEstimate = category === "estimate";
+        if (isEstimate) setUploadingEstimate(true); else setUploadingCount(files.length);
         let current = attachments;
         for (const file of files) {
           try {
             const added = await onUploadAttachment(initial.id, current, file);
-            if (added) current = [...current, added];
+            if (added) {
+              const tagged = { ...added, category: category || undefined };
+              current = [...current, tagged];
+              onSaveAttachments(initial.id, current);
+            }
             setAttachments(current);
           } catch (e) {
             console.error(e);
             alert(`「${file.name}」のアップロードに失敗しました: ${e.message}`);
           } finally {
-            setUploadingCount(n => Math.max(0, n - 1));
+            if (!isEstimate) setUploadingCount(n => Math.max(0, n - 1));
+          }
+        }
+        if (isEstimate) {
+          setUploadingEstimate(false);
+          // 見積書が添付されたら、可能であればステータスを「見積提出」まで自動で進める(後退はさせない、終了系ステータスには触れない)
+          const targetStatus = "見積提出";
+          if (availableStatuses.includes(targetStatus) && !AUTO_STATUS_TERMINAL.includes(status)) {
+            const curIdx = availableStatuses.indexOf(status);
+            const targetIdx = availableStatuses.indexOf(targetStatus);
+            if (targetIdx > curIdx) {
+              setStatus(targetStatus);
+              onUpdateField(initial.id, "status", targetStatus);
+            }
           }
         }
       };
@@ -3699,12 +3960,16 @@
       const [receivedTime, setReceivedTime] = useState(initial?.receivedTime || "");
       const [visitDate, setVisitDate] = useState(toISODate(initial?.visitDate) || "");
       const [visitTime, setVisitTime] = useState(initial?.visitTime || "");
+      const [visitEndDate, setVisitEndDate] = useState(toISODate(initial?.visitEndDate) || "");
       const [workDate, setWorkDate] = useState(toISODate(initial?.workDate) || "");
       const [workTime, setWorkTime] = useState(initial?.workTime || "");
+      const [workEndDate, setWorkEndDate] = useState(toISODate(initial?.workEndDate) || "");
       const [precheckDate, setPrecheckDate] = useState(toISODate(initial?.precheckDate) || "");
       const [precheckTime, setPrecheckTime] = useState(initial?.precheckTime || "");
+      const [precheckEndDate, setPrecheckEndDate] = useState(toISODate(initial?.precheckEndDate) || "");
       const [honkouseiDate, setHonkouseiDate] = useState(toISODate(initial?.honkouseiDate) || "");
       const [honkouseiTime, setHonkouseiTime] = useState(initial?.honkouseiTime || "");
+      const [honkouseiEndDate, setHonkouseiEndDate] = useState(toISODate(initial?.honkouseiEndDate) || "");
 
       const [codeQuery, setCodeQuery] = useState("");
       const [showSuggest, setShowSuggest] = useState(false);
@@ -3779,12 +4044,16 @@
         receivedTime,
         visitDate: toISODate(visitDate),
         visitTime,
+        visitEndDate: toISODate(visitEndDate),
         workDate: toISODate(workDate),
         workTime,
+        workEndDate: toISODate(workEndDate),
         precheckDate: toISODate(precheckDate),
         precheckTime,
+        precheckEndDate: toISODate(precheckEndDate),
         honkouseiDate: toISODate(honkouseiDate),
         honkouseiTime,
+        honkouseiEndDate: toISODate(honkouseiEndDate),
         equipmentSheets: initial?.equipmentSheets || [],
         attachments,
       });
@@ -3982,14 +4251,14 @@
                 <React.Fragment>
                   <div className="prop-row">
                     <div className="prop-label"><CalendarIcon size={14} /> 事前点検日時</div>
-                    <div className="prop-value">
-                      <DateTimePicker dateValue={precheckDate} timeValue={precheckTime} onDateChange={setPrecheckDate} onTimeChange={setPrecheckTime} />
+                    <div className="prop-value" style={{ display: "flex", alignItems: "center" }}>
+                      <DateTimePicker dateValue={precheckDate} timeValue={precheckTime} onDateChange={setPrecheckDate} onTimeChange={setPrecheckTime} endDateValue={precheckEndDate} onEndDateChange={setPrecheckEndDate} />
                     </div>
                   </div>
                   <div className="prop-row">
                     <div className="prop-label"><CalendarIcon size={14} /> 本校正日時</div>
-                    <div className="prop-value">
-                      <DateTimePicker dateValue={honkouseiDate} timeValue={honkouseiTime} onDateChange={setHonkouseiDate} onTimeChange={setHonkouseiTime} />
+                    <div className="prop-value" style={{ display: "flex", alignItems: "center" }}>
+                      <DateTimePicker dateValue={honkouseiDate} timeValue={honkouseiTime} onDateChange={setHonkouseiDate} onTimeChange={setHonkouseiTime} endDateValue={honkouseiEndDate} onEndDateChange={setHonkouseiEndDate} />
                     </div>
                   </div>
                 </React.Fragment>
@@ -3999,14 +4268,14 @@
                 <React.Fragment>
                   <div className="prop-row">
                     <div className="prop-label"><CalendarIcon size={14} /> 訪問・調査日程</div>
-                    <div className="prop-value">
-                      <DateTimePicker dateValue={visitDate} timeValue={visitTime} onDateChange={setVisitDate} onTimeChange={setVisitTime} />
+                    <div className="prop-value" style={{ display: "flex", alignItems: "center" }}>
+                      <DateTimePicker dateValue={visitDate} timeValue={visitTime} onDateChange={setVisitDate} onTimeChange={setVisitTime} endDateValue={visitEndDate} onEndDateChange={setVisitEndDate} />
                     </div>
                   </div>
                   <div className="prop-row">
                     <div className="prop-label"><CalendarIcon size={14} /> 作業・修理日程</div>
-                    <div className="prop-value">
-                      <DateTimePicker dateValue={workDate} timeValue={workTime} onDateChange={setWorkDate} onTimeChange={setWorkTime} />
+                    <div className="prop-value" style={{ display: "flex", alignItems: "center" }}>
+                      <DateTimePicker dateValue={workDate} timeValue={workTime} onDateChange={setWorkDate} onTimeChange={setWorkTime} endDateValue={workEndDate} onEndDateChange={setWorkEndDate} />
                     </div>
                   </div>
                 </React.Fragment>
@@ -4020,14 +4289,14 @@
                     <React.Fragment>
                       <div className="prop-row">
                         <div className="prop-label"><CalendarIcon size={14} /> ①日程</div>
-                        <div className="prop-value">
-                          <DateTimePicker dateValue={visitDate} timeValue={visitTime} onDateChange={setVisitDate} onTimeChange={setVisitTime} />
+                        <div className="prop-value" style={{ display: "flex", alignItems: "center" }}>
+                          <DateTimePicker dateValue={visitDate} timeValue={visitTime} onDateChange={setVisitDate} onTimeChange={setVisitTime} endDateValue={visitEndDate} onEndDateChange={setVisitEndDate} />
                         </div>
                       </div>
                       <div className="prop-row">
                         <div className="prop-label"><CalendarIcon size={14} /> ②日程</div>
-                        <div className="prop-value">
-                          <DateTimePicker dateValue={workDate} timeValue={workTime} onDateChange={setWorkDate} onTimeChange={setWorkTime} />
+                        <div className="prop-value" style={{ display: "flex", alignItems: "center" }}>
+                          <DateTimePicker dateValue={workDate} timeValue={workTime} onDateChange={setWorkDate} onTimeChange={setWorkTime} endDateValue={workEndDate} onEndDateChange={setWorkEndDate} />
                         </div>
                       </div>
                     </React.Fragment>
@@ -4036,8 +4305,8 @@
                 return (
                   <div className="prop-row">
                     <div className="prop-label"><CalendarIcon size={14} /> 実施予定日時</div>
-                    <div className="prop-value">
-                      <DateTimePicker dateValue={visitDate} timeValue={visitTime} onDateChange={setVisitDate} onTimeChange={setVisitTime} />
+                    <div className="prop-value" style={{ display: "flex", alignItems: "center" }}>
+                      <DateTimePicker dateValue={visitDate} timeValue={visitTime} onDateChange={setVisitDate} onTimeChange={setVisitTime} endDateValue={visitEndDate} onEndDateChange={setVisitEndDate} />
                     </div>
                   </div>
                 );
@@ -4074,7 +4343,56 @@
               <div style={{ marginTop: 6 }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
                   <div style={{ fontSize: 11.5, color: inkDim, display: "flex", alignItems: "center", gap: 5 }}>
-                    <Paperclip size={13} /> 添付ファイル（見積書など）
+                    <FileText size={13} /> 見積書
+                  </div>
+                  <button
+                    type="button"
+                    style={{ ...styles.ghostBtn, padding: "3px 8px", fontSize: 11.5 }}
+                    onClick={() => estimateInputRef.current?.click()}
+                    disabled={uploadingEstimate}
+                  >
+                    <Upload size={12} /> {uploadingEstimate ? "アップロード中…" : "追加"}
+                  </button>
+                  <input
+                    ref={estimateInputRef}
+                    type="file"
+                    multiple
+                    style={{ display: "none" }}
+                    onChange={e => { handleFilesSelected(e.target.files, "estimate"); e.target.value = ""; }}
+                  />
+                </div>
+                <div style={{ fontSize: 11, color: "var(--clr605a49)", marginBottom: 6 }}>
+                  見積書を添付すると、可能な場合はステータスが自動で「見積提出」まで進みます
+                </div>
+                {estimateAttachments.length === 0 ? (
+                  <div style={{ fontSize: 11.5, color: "var(--clr605a49)" }}>見積書は添付されていません</div>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                    {estimateAttachments.map(a => (
+                      <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 8px", background: "var(--clr151310)", borderRadius: 6, border: `1px solid ${rule}` }}>
+                        <FileText size={12} color="var(--clr8f8a7c)" />
+                        <a
+                          href={a.viewUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          style={{ flex: 1, fontSize: 12.5, color: "var(--clr8fb3d9)", textDecoration: "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                          title="クリックでプレビューを開く"
+                        >
+                          {a.name}
+                        </a>
+                        <button type="button" style={styles.iconBtnSm} onClick={() => removeAttachment(a.id)} title="台帳から削除">
+                          <X size={12} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div style={{ marginTop: 14 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                  <div style={{ fontSize: 11.5, color: inkDim, display: "flex", alignItems: "center", gap: 5 }}>
+                    <Paperclip size={13} /> 添付ファイル（その他）
                   </div>
                   <button
                     type="button"
@@ -4092,11 +4410,11 @@
                     onChange={e => { handleFilesSelected(e.target.files); e.target.value = ""; }}
                   />
                 </div>
-                {attachments.length === 0 ? (
+                {otherAttachments.length === 0 ? (
                   <div style={{ fontSize: 11.5, color: "var(--clr605a49)" }}>添付ファイルはありません</div>
                 ) : (
                   <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                    {attachments.map(a => (
+                    {otherAttachments.map(a => (
                       <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 8px", background: "var(--clr151310)", borderRadius: 6, border: `1px solid ${rule}` }}>
                         <Paperclip size={12} color="var(--clr8f8a7c)" />
                         <a
@@ -4212,9 +4530,12 @@
       );
     }
 
-    function DateTimePicker({ dateValue, timeValue, onDateChange, onTimeChange }) {
+    // 開始日の隣に添える「終了日」入力(任意)。〇〇日～△△日という期間表示に使う
+    function DateTimePicker({ dateValue, timeValue, onDateChange, onTimeChange, endDateValue, onEndDateChange }) {
       const [open, setOpen] = useState(false);
       const [anchorRect, setAnchorRect] = useState(null);
+      const [showEndDate, setShowEndDate] = useState(!!endDateValue);
+      const [activeField, setActiveField] = useState("start"); // "start" | "end"
       const [cursor, setCursor] = useState(() => {
         const base = dateValue ? new Date(dateValue + "T00:00:00") : new Date();
         return { y: base.getFullYear(), m: base.getMonth() };
@@ -4229,8 +4550,27 @@
       };
 
       const pick = (date) => {
-        onDateChange(toISODate(date));
-        setOpen(false);
+        const iso = toISODate(date);
+        if (activeField === "end") {
+          onEndDateChange(iso);
+        } else {
+          onDateChange(iso);
+          // 開始日を終了日より後にした場合は、終了日をクリアして不整合を防ぐ
+          if (endDateValue && iso > endDateValue) onEndDateChange("");
+          if (showEndDate) setActiveField("end");
+          else setOpen(false);
+        }
+      };
+
+      const toggleEndDate = () => {
+        if (showEndDate) {
+          onEndDateChange("");
+          setShowEndDate(false);
+          setActiveField("start");
+        } else {
+          setShowEndDate(true);
+          setActiveField("end");
+        }
       };
 
       useEffect(() => {
@@ -4243,15 +4583,17 @@
       }, [open]);
 
       const todayIso = toISODate(new Date());
+      const hasEndDate = !!endDateValue;
 
       return (
         <div style={{ position: "relative", display: "flex", gap: 6, alignItems: "center" }}>
           <button
             type="button"
             style={styles.dtDateBtnNotion}
-            onClick={(e) => { setAnchorRect(e.currentTarget.getBoundingClientRect()); setOpen(o => !o); }}
+            onClick={(e) => { setAnchorRect(e.currentTarget.getBoundingClientRect()); setActiveField("start"); setOpen(o => !o); }}
           >
             <CalendarIcon size={12} /> {dateValue ? fmtJP(dateValue) : "未入力"}
+            {hasEndDate && <span style={{ color: "var(--clr8fb3d9)" }}> 〜 {fmtJP(endDateValue)}</span>}
           </button>
           <input
             type="time"
@@ -4263,7 +4605,7 @@
           {open && (
             <React.Fragment>
               <div style={styles.dtBackdrop} onClick={() => setOpen(false)} />
-              <div style={{ ...styles.dtPopup, ...popoverStyleFor(anchorRect, 230, 320) }} onClick={e => e.stopPropagation()}>
+              <div style={{ ...styles.dtPopup, ...popoverStyleFor(anchorRect, 230, 380) }} onClick={e => e.stopPropagation()}>
                 <div style={styles.calNav}>
                   <button type="button" style={styles.iconBtn} onClick={() => move(-1)}><ChevronLeft size={14} /></button>
                   <div style={styles.calMonthLabel}>{cursor.y}年 {cursor.m + 1}月</div>
@@ -4276,7 +4618,9 @@
                   {cells.map((date, i) => {
                     if (!date) return <div key={i} style={styles.dtCellEmpty} />;
                     const iso = toISODate(date);
-                    const selected = iso === dateValue;
+                    const isStart = iso === dateValue;
+                    const isEnd = hasEndDate && iso === endDateValue;
+                    const inRange = hasEndDate && dateValue && iso > dateValue && iso < endDateValue;
                     const isToday = iso === todayIso;
                     return (
                       <div
@@ -4284,7 +4628,9 @@
                         style={{
                           ...styles.dtCell,
                           ...(isToday ? styles.dtCellToday : {}),
-                          ...(selected ? styles.dtCellSelected : {})
+                          ...(inRange ? styles.dtCellInRange : {}),
+                          ...(isStart ? styles.dtCellSelected : {}),
+                          ...(isEnd ? styles.dtCellSelectedEnd : {}),
                         }}
                         onClick={() => pick(date)}
                       >
@@ -4294,6 +4640,35 @@
                   })}
                 </div>
                 <button type="button" style={styles.dtTodayBtn} onClick={() => pick(new Date())}>今日</button>
+
+                <div style={styles.dtEndDateToggleRow}>
+                  <span style={{ fontSize: 12.5, color: "var(--clre9e4d8)" }}>終了日</span>
+                  <label style={styles.toggleSwitch}>
+                    <input type="checkbox" checked={showEndDate} onChange={toggleEndDate} style={{ display: "none" }} />
+                    <span style={{ ...styles.toggleTrack, ...(showEndDate ? styles.toggleTrackOn : {}) }}>
+                      <span style={{ ...styles.toggleThumb, ...(showEndDate ? styles.toggleThumbOn : {}) }} />
+                    </span>
+                  </label>
+                </div>
+
+                {showEndDate && (
+                  <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+                    <button
+                      type="button"
+                      style={{ ...styles.dtFieldTab, ...(activeField === "start" ? styles.dtFieldTabActive : {}) }}
+                      onClick={() => setActiveField("start")}
+                    >
+                      開始: {dateValue ? fmtJP(dateValue) : "未入力"}
+                    </button>
+                    <button
+                      type="button"
+                      style={{ ...styles.dtFieldTab, ...(activeField === "end" ? styles.dtFieldTabActive : {}) }}
+                      onClick={() => setActiveField("end")}
+                    >
+                      終了: {endDateValue ? fmtJP(endDateValue) : "未入力"}
+                    </button>
+                  </div>
+                )}
               </div>
             </React.Fragment>
           )}
@@ -5700,10 +6075,32 @@
       dtCellEmpty: {},
       dtCellToday: { color: amber, fontWeight: 700 },
       dtCellSelected: { background: amber, color: "var(--clr171310)", fontWeight: 700 },
+      dtCellSelectedEnd: { background: "var(--clr8fb3d9)", color: "var(--clr171310)", fontWeight: 700, borderRadius: 5 },
+      dtCellInRange: { background: "rgba(198,138,61,0.16)", borderRadius: 0 },
       dtTodayBtn: {
         marginTop: 8, width: "100%", padding: "6px 0", background: "transparent", border: `1px solid ${rule}`,
         borderRadius: 6, color: inkDim, fontSize: 12, cursor: "pointer",
       },
+      dtEndDateToggleRow: {
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+        marginTop: 10, paddingTop: 10, borderTop: `1px solid ${rule}`,
+      },
+      dtFieldTab: {
+        flex: 1, padding: "6px 4px", fontSize: 11, borderRadius: 6, border: `1px solid ${rule}`,
+        background: "transparent", color: inkDim, cursor: "pointer", textAlign: "center",
+      },
+      dtFieldTabActive: { borderColor: amber, color: amber, background: "rgba(198,138,61,0.1)" },
+      toggleSwitch: { display: "inline-flex", cursor: "pointer" },
+      toggleTrack: {
+        width: 34, height: 19, borderRadius: 10, background: "var(--clr3a352b)",
+        position: "relative", transition: "background 0.15s",
+      },
+      toggleTrackOn: { background: amber },
+      toggleThumb: {
+        position: "absolute", top: 2, left: 2, width: 15, height: 15, borderRadius: "50%",
+        background: "var(--clre9e4d8)", transition: "left 0.15s",
+      },
+      toggleThumbOn: { left: 17 },
       toolbar: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 18, flexWrap: "wrap" },
       searchBox: {
         display: "flex", alignItems: "center", gap: 8, background: paperRaised, border: `1px solid ${rule}`,
