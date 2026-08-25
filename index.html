@@ -197,6 +197,8 @@
     const X = (p) => <Icon {...p}><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></Icon>;
     const ChevronLeft = (p) => <Icon {...p}><polyline points="15 18 9 12 15 6"/></Icon>;
     const ChevronRight = (p) => <Icon {...p}><polyline points="9 18 15 12 9 6"/></Icon>;
+    const ChevronUp = (p) => <Icon {...p}><polyline points="18 15 12 9 6 15"/></Icon>;
+    const ChevronDown = (p) => <Icon {...p}><polyline points="6 9 12 15 18 9"/></Icon>;
     const Tag = (p) => <Icon {...p}><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></Icon>;
     const Trash2 = (p) => <Icon {...p}><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></Icon>;
     const Save = (p) => <Icon {...p}><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></Icon>;
@@ -605,7 +607,7 @@
       const [statusesShuuri, setStatusesShuuri, statusShuuriLoaded] = useStorageState(STATUS_SHUURI_KEY, DEFAULT_STATUSES_SHUURI);
       const [statusVisibility, setStatusVisibility, hiddenLoaded] = useStorageState(HIDDEN_STATUS_KEY, {});
       const [boardLayout, setBoardLayout, boardLayoutLoaded] = useStorageState(BOARD_LAYOUT_KEY, "row");
-      const [boardRouteFilter, setBoardRouteFilter] = useState("校正");
+      const [boardRouteFilter, setBoardRouteFilter] = useState("修理・点検");
       const [tableColumnOrder, setTableColumnOrder, tableColLoaded] = useStorageState(TABLE_COL_KEY, DEFAULT_COLUMN_ORDER);
       const [tableHiddenColumns, setTableHiddenColumns, tableHiddenLoaded] = useStorageState(TABLE_HIDDEN_COL_KEY, []);
       const [baseColumnSort, setBaseColumnSort, baseSortLoaded] = useStorageState(TABLE_SORT_KEY, null);
@@ -624,6 +626,7 @@
       }, [theme]);
       const [syncing, setSyncing] = useState(false);
       const [showCloudConfig, setShowCloudConfig] = useState(false);
+      const [footerCollapsed, setFooterCollapsed] = useState(true);
       const device = useViewport(); // "phone" | "tablet" | "desktop"
 
       const [showColumnAdmin, setShowColumnAdmin] = useState(false);
@@ -639,7 +642,7 @@
         const t = new Date();
         return { y: t.getFullYear(), m: t.getMonth() };
       });
-      const [calAxis, setCalAxis] = useState("precheck");
+      const [calAxis, setCalAxis] = useState("all");
       const [searchQuery, setSearchQuery] = useState("");
       const [showEquip, setShowEquip] = useState(null);
       const [showShortcuts, setShowShortcuts] = useState(false);
@@ -1643,13 +1646,17 @@
               <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
                 <div style={styles.viewToggle}>
                   <button
+                    style={{ ...styles.viewBtn, ...(boardRouteFilter === "修理・点検" ? styles.viewBtnActive : {}) }}
+                    onClick={() => setBoardRouteFilter("修理・点検")}
+                  >修理・点検</button>
+                  <button
+                    style={{ ...styles.viewBtn, ...(boardRouteFilter === "機器設置" ? styles.viewBtnActive : {}) }}
+                    onClick={() => setBoardRouteFilter("機器設置")}
+                  >設置</button>
+                  <button
                     style={{ ...styles.viewBtn, ...(boardRouteFilter === "校正" ? styles.viewBtnActive : {}) }}
                     onClick={() => setBoardRouteFilter("校正")}
-                  >校正ルート</button>
-                  <button
-                    style={{ ...styles.viewBtn, ...(boardRouteFilter === "その他" ? styles.viewBtnActive : {}) }}
-                    onClick={() => setBoardRouteFilter("その他")}
-                  >修理・点検・その他ルート</button>
+                  >校正</button>
                 </div>
 
                 <div style={styles.viewToggle}>
@@ -1743,7 +1750,11 @@
           )}
           {view === "board" && (
             <BoardView
-              records={filtered.filter(r => boardRouteFilter === "校正" ? r.kind === "校正" : r.kind !== "校正")}
+              records={filtered.filter(r => {
+                if (boardRouteFilter === "校正") return r.kind === "校正";
+                if (boardRouteFilter === "機器設置") return r.kind === "機器設置";
+                return r.kind !== "校正" && r.kind !== "機器設置";
+              })}
               codes={codes}
               tags={tags}
               boardRouteFilter={boardRouteFilter}
@@ -1774,6 +1785,16 @@
           )}
 
           <footer style={styles.footerBar}>
+            <button
+              style={{ ...styles.ghostBtn, marginBottom: footerCollapsed ? 0 : 10 }}
+              onClick={() => setFooterCollapsed(v => !v)}
+              title={footerCollapsed ? "クラウド連携・管理メニューを開く" : "クラウド連携・管理メニューを閉じる"}
+            >
+              {footerCollapsed ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+              クラウド連携・管理メニュー
+            </button>
+            {!footerCollapsed && (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
             <button style={{ ...styles.ghostBtn, ...(gasUrl ? styles.ghostBtnActiveCloud : {}) }} onClick={fetchFromCloud} disabled={syncing} title="クラウドから最新データを手動取得">
               <RefreshCw size={14} className={syncing ? "spin-icon" : ""} /> {syncing ? "同期中…" : "クラウドから取得"}
             </button>
@@ -1808,6 +1829,8 @@
             <button style={styles.ghostBtn} onClick={() => backupInputRef.current?.click()} title="JSONファイルからデータを復元">
               <Upload size={14} /> バックアップ復元
             </button>
+              </div>
+            )}
             <input
               ref={backupInputRef}
               type="file"
@@ -5837,6 +5860,7 @@
       tdTruncate: {
         display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical",
         overflow: "hidden", maxWidth: 260, fontSize: 12, color: inkDim, lineHeight: 1.5,
+        whiteSpace: "pre-wrap", wordBreak: "break-word",
       },
       cellPopoverBackdrop: { position: "fixed", inset: 0, zIndex: 55 },
       cellPopover: {
