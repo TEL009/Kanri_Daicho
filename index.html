@@ -1550,6 +1550,7 @@
             />
           ) : (
           <React.Fragment>
+          <div style={styles.stickyTop}>
           <header style={styles.header}>
             <div>
               <div style={styles.eyebrow}>受付台帳</div>
@@ -1706,6 +1707,7 @@
               </button>
             </div>
           )}
+          </div>
 
           {view === "table" && (
             <TableView
@@ -1856,6 +1858,7 @@
               modelOptions={modelOptions}
               onCancel={() => { setShowForm(false); setEditing(null); }}
               onSave={saveRecord}
+              onDelete={(id) => { deleteRecord(id); setShowForm(false); setEditing(null); }}
               onOpenEquip={(r) => setShowEquip(r)}
               getColor={getColor}
               onSetOptionColor={setOptionColor}
@@ -3910,7 +3913,7 @@
     }
 
     // ================= Compact Notion-Style Record Form with Smart Date Visibility =================
-    function RecordForm({ initial, codes, dealerGroups, kinds, tags, getStatusesForKind, customerOptions, contactOptions, chargeOptions, modelOptions, onCancel, onSave, onOpenEquip, getColor, onSetOptionColor, onReorderCustomerOptions, onReorderContactOptions, onReorderChargeOptions, onReorderModelOptions, onReorderTags, onReorderKinds, onReorderStatuses, onUploadAttachment, onSaveAttachments, onUpdateField }) {
+    function RecordForm({ initial, codes, dealerGroups, kinds, tags, getStatusesForKind, customerOptions, contactOptions, chargeOptions, modelOptions, onCancel, onSave, onDelete, onOpenEquip, getColor, onSetOptionColor, onReorderCustomerOptions, onReorderContactOptions, onReorderChargeOptions, onReorderModelOptions, onReorderTags, onReorderKinds, onReorderStatuses, onUploadAttachment, onSaveAttachments, onUpdateField }) {
       const [subject, setSubject] = useState(initial?.subject || "");
       const [kind, setKind] = useState(initial?.kind || "");
       const [code, setCode] = useState(initial?.code || "");
@@ -4467,10 +4470,19 @@
             </div>
 
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 16, paddingTop: 12, borderTop: `1px solid ${rule}` }}>
-              <div>
+              <div style={{ display: "flex", gap: 8 }}>
                 <button type="button" style={styles.equipLinkBtn} onClick={handleOpenEquipFromForm}>
                   <ClipboardList size={14} /> 機器点検票を開く
                 </button>
+                {initial?.id && onDelete && (
+                  <button
+                    type="button"
+                    style={{ ...styles.equipLinkBtn, color: "var(--clrc9573f)", borderColor: "var(--clrc9573f)" }}
+                    onClick={() => onDelete(initial.id)}
+                  >
+                    <Trash2 size={14} /> 削除
+                  </button>
+                )}
               </div>
               <div style={{ display: "flex", gap: 8 }}>
                 <button style={styles.ghostBtn} onClick={onCancel}>キャンセル</button>
@@ -4664,7 +4676,20 @@
                     );
                   })}
                 </div>
-                <button type="button" style={styles.dtTodayBtn} onClick={() => pick(new Date())}>今日</button>
+                <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+                  <button type="button" style={{ ...styles.dtTodayBtn, flex: 1, marginTop: 0 }} onClick={() => pick(new Date())}>今日</button>
+                  <button
+                    type="button"
+                    style={{ ...styles.dtTodayBtn, flex: 1, marginTop: 0, color: "var(--clrc9573f)" }}
+                    onClick={() => {
+                      onDateChange("");
+                      onTimeChange("");
+                      if (onEndDateChange) onEndDateChange("");
+                      setShowEndDate(false);
+                      setOpen(false);
+                    }}
+                  >クリア</button>
+                </div>
 
                 <div style={styles.dtEndDateToggleRow}>
                   <span style={{ fontSize: 12.5, color: "var(--clre9e4d8)" }}>終了日</span>
@@ -5784,6 +5809,10 @@
       },
       loadingWrap: { minHeight: "100vh", background: paper, display: "flex", alignItems: "center", justifyContent: "center" },
       loadingText: { color: inkDim, fontFamily: "'IBM Plex Sans JP', sans-serif" },
+      stickyTop: {
+        position: "sticky", top: 0, zIndex: 25, background: paper,
+        paddingTop: 4, marginTop: -4, paddingBottom: 2,
+      },
       header: {
         display: "flex", justifyContent: "space-between", alignItems: "flex-end",
         marginBottom: 26, flexWrap: "wrap", gap: 14,
