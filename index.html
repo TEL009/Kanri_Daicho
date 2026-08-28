@@ -169,6 +169,14 @@
     .prop-select-btn:hover { background: rgba(255,255,255,0.06); }
     .prop-unselected { color: var(--clr605a49); }
 
+    /* スマホ幅: ラベル+値の横並びをやめ、ラベルを上・値を下に積んで値側に十分な横幅を持たせる
+       (日付ボタンやボタン列の文字が中途半端に折り返されるのを防ぐ) */
+    @media (max-width: 700px) {
+      .prop-row { flex-direction: column; align-items: flex-start; gap: 4px; min-height: 0; padding: 8px 0; }
+      .prop-label { width: 100%; }
+      .prop-value { width: 100%; flex-wrap: wrap; }
+    }
+
     @keyframes spin { 100% { transform: rotate(360deg); } }
     .spin-icon { animation: spin 1s linear infinite; }
   </style>
@@ -1153,6 +1161,11 @@
       const reorderContactOptions = reorderOptionList(setContactOptions, contactOptions);
       const reorderChargeOptions = reorderOptionList(setChargeOptions, chargeOptions);
       const reorderModelOptions = reorderOptionList(setModelOptions, modelOptions);
+      // 得意先・営業担当・担当者・型式の選択肢一覧から、不要になった項目を削除する(既存案件の値自体はそのまま残る)
+      const removeCustomerOption = (opt) => setCustomerOptions(prev => prev.filter(o => o !== opt));
+      const removeContactOption = (opt) => setContactOptions(prev => prev.filter(o => o !== opt));
+      const removeChargeOption = (opt) => setChargeOptions(prev => prev.filter(o => o !== opt));
+      const removeModelOption = (opt) => setModelOptions(prev => prev.filter(o => o !== opt));
       const reorderTags = reorderOptionList(setTags, tags);
       const reorderKindList = reorderOptionList(setKinds, kinds);
       const toggleColumnHidden = (key) => {
@@ -1418,6 +1431,37 @@
         const a = document.createElement("a");
         a.href = url;
         a.download = `schedule-${toISODate(new Date())}.ics`;
+        a.click();
+        URL.revokeObjectURL(url);
+      };
+
+      // 取り込んだ顧客コード表(拠点コード)をCSVで書き出す。ExcelでもBOM付きUTF-8にして文字化けを防ぐ
+      const exportCodesCsv = () => {
+        if (codes.length === 0) {
+          alert("書き出せる顧客コードがありません");
+          return;
+        }
+        const escapeCsv = (v) => {
+          const s = String(v ?? "");
+          return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+        };
+        const rows = [["拠点名", "コード", "得意先グループ略称", "得意先グループ正式名", "得意先"]];
+        for (const c of codes) {
+          const dealer = dealerFor(c.code, dealerGroups);
+          rows.push([
+            c.name || "",
+            c.code || "",
+            dealer ? dealer.abbr : "",
+            dealer ? dealer.name : "",
+            dealer ? dealer.customerName : "",
+          ]);
+        }
+        const csv = rows.map(r => r.map(escapeCsv).join(",")).join("\r\n");
+        const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `customer-codes-${toISODate(new Date())}.csv`;
         a.click();
         URL.revokeObjectURL(url);
       };
@@ -1748,6 +1792,10 @@
               onReorderKinds={reorderKindList}
               onUploadAttachment={uploadAttachment}
               onSaveAttachments={saveAttachments}
+              onRemoveCustomerOption={removeCustomerOption}
+              onRemoveContactOption={removeContactOption}
+              onRemoveChargeOption={removeChargeOption}
+              onRemoveModelOption={removeModelOption}
             />
           )}
           {view === "board" && (
@@ -1809,6 +1857,9 @@
             <span style={styles.footerSep} />
             <button style={styles.ghostBtn} onClick={() => setShowImport(true)}>
               <Upload size={14} /> 顧客コード表取込 ({codes.length}件)
+            </button>
+            <button style={styles.ghostBtn} onClick={exportCodesCsv} title="取り込んだ顧客コード表をCSVで書き出す">
+              <Download size={14} /> 顧客コード表CSV出力
             </button>
             <button style={styles.ghostBtn} onClick={() => setShowTagAdmin(true)}>
               <Tag size={14} /> NSS編集 ({tags.length}件)
@@ -1872,6 +1923,10 @@
               onUploadAttachment={uploadAttachment}
               onSaveAttachments={saveAttachments}
               onUpdateField={updateRecordField}
+              onRemoveCustomerOption={removeCustomerOption}
+              onRemoveContactOption={removeContactOption}
+              onRemoveChargeOption={removeChargeOption}
+              onRemoveModelOption={removeModelOption}
             />
           )}
 
@@ -1883,6 +1938,7 @@
               onSetOptionColor={setOptionColor}
               onReorderCustomerOptions={reorderCustomerOptions}
               onReorderKinds={reorderKindList}
+              onRemoveCustomerOption={removeCustomerOption}
               onSave={(payload) => { saveRecord(payload); setShowQuickAdd(false); }}
               onCancel={() => setShowQuickAdd(false)}
             />
@@ -2371,7 +2427,7 @@
       );
     }
 
-    function SelectCellPopover({ value, rect, options, colorFn, onSetColor, allowCreate, onSelect, onClose, onReorder }) {
+    function SelectCellPopover({ value, rect, options, colorFn, onSetColor, allowCreate, onSelect, onClose, onReorder, onRemoveOption }) {
       const [query, setQuery] = useState("");
       const [paletteFor, setPaletteFor] = useState(null);
       const [dragIdx, setDragIdx] = useState(null);
@@ -2441,6 +2497,20 @@
                       <Palette size={12} color="var(--clr948d7c)" />
                     </button>
                   )}
+                  {onRemoveOption && (
+                    <button
+                      style={styles.paletteTriggerBtn}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (window.confirm(`「${opt}」をこの選択肢一覧から削除しますか？(すでに使われている案件の値はそのまま残ります)`)) {
+                          onRemoveOption(opt);
+                        }
+                      }}
+                      title="この選択肢を削除"
+                    >
+                      <Trash2 size={12} color="var(--clr948d7c)" />
+                    </button>
+                  )}
                   {paletteFor === opt && (
                     <div style={styles.inlineColorPicker}>
                       {CATEGORY_PALETTE.map(c => (
@@ -2465,7 +2535,7 @@
       );
     }
 
-    function NotionPropertySelect({ value, options, colorFn, onSetColor, allowCreate, onSelect, onReorder }) {
+    function NotionPropertySelect({ value, options, colorFn, onSetColor, allowCreate, onSelect, onReorder, onRemoveOption }) {
       const [open, setOpen] = useState(false);
       const [anchor, setAnchor] = useState(null);
 
@@ -2493,6 +2563,7 @@
               allowCreate={allowCreate}
               onSelect={onSelect}
               onReorder={onReorder}
+              onRemoveOption={onRemoveOption}
               onClose={() => setOpen(false)}
             />
           )}
@@ -2525,6 +2596,7 @@
       onReorderColumns, onSetColumnWidth,
       onEdit, onDelete, onOpenEquip, onUpdateField, onUpdateDateTime, getStatusesForKind, getColor, onSetOptionColor,
       onReorderCustomerOptions, onReorderContactOptions, onReorderChargeOptions, onReorderModelOptions, onReorderTags, onReorderKinds,
+      onRemoveCustomerOption, onRemoveContactOption, onRemoveChargeOption, onRemoveModelOption,
       onUploadAttachment, onSaveAttachments,
     }) {
       const [activeCell, setActiveCell] = useState(null);
@@ -2933,6 +3005,7 @@
               allowCreate={true}
               onSelect={(v) => onUpdateField(activeRecord.id, "contactName", v)}
               onReorder={onReorderContactOptions}
+              onRemoveOption={onRemoveContactOption}
               onClose={() => setActiveCell(null)}
             />
           )}
@@ -2946,6 +3019,7 @@
               allowCreate={true}
               onSelect={(v) => onUpdateField(activeRecord.id, "personInCharge", v)}
               onReorder={onReorderChargeOptions}
+              onRemoveOption={onRemoveChargeOption}
               onClose={() => setActiveCell(null)}
             />
           )}
@@ -2959,6 +3033,7 @@
               allowCreate={true}
               onSelect={(v) => onUpdateField(activeRecord.id, "model", v)}
               onReorder={onReorderModelOptions}
+              onRemoveOption={onRemoveModelOption}
               onClose={() => setActiveCell(null)}
             />
           )}
@@ -3008,6 +3083,7 @@
               allowCreate={true}
               onSelect={(v) => onUpdateField(activeRecord.id, "customer", v)}
               onReorder={onReorderCustomerOptions}
+              onRemoveOption={onRemoveCustomerOption}
               onClose={() => setActiveCell(null)}
             />
           )}
@@ -3093,7 +3169,7 @@
     // ================= Quick Add Form (クイック登録: 運転中・作業中でもサッと打てる最小構成) =================
     // 拠点名(件名)・得意先・種別・内容の4項目だけに絞った軽量な新規登録フォーム。
     // それ以外の項目(日程・型式・担当者など)は空のまま保存し、後で通常の編集画面から追記する想定。
-    function QuickAddForm({ customerOptions, kinds, getColor, onSave, onCancel, onReorderCustomerOptions, onReorderKinds, onSetOptionColor }) {
+    function QuickAddForm({ customerOptions, kinds, getColor, onSave, onCancel, onReorderCustomerOptions, onReorderKinds, onSetOptionColor, onRemoveCustomerOption }) {
       const [subject, setSubject] = useState("");
       const [customer, setCustomer] = useState("");
       const [kind, setKind] = useState("");
@@ -3154,6 +3230,7 @@
                   allowCreate={true}
                   onSelect={setCustomer}
                   onReorder={onReorderCustomerOptions}
+                  onRemoveOption={onRemoveCustomerOption}
                 />
               </div>
 
@@ -3913,7 +3990,7 @@
     }
 
     // ================= Compact Notion-Style Record Form with Smart Date Visibility =================
-    function RecordForm({ initial, codes, dealerGroups, kinds, tags, getStatusesForKind, customerOptions, contactOptions, chargeOptions, modelOptions, onCancel, onSave, onDelete, onOpenEquip, getColor, onSetOptionColor, onReorderCustomerOptions, onReorderContactOptions, onReorderChargeOptions, onReorderModelOptions, onReorderTags, onReorderKinds, onReorderStatuses, onUploadAttachment, onSaveAttachments, onUpdateField }) {
+    function RecordForm({ initial, codes, dealerGroups, kinds, tags, getStatusesForKind, customerOptions, contactOptions, chargeOptions, modelOptions, onCancel, onSave, onDelete, onOpenEquip, getColor, onSetOptionColor, onReorderCustomerOptions, onReorderContactOptions, onReorderChargeOptions, onReorderModelOptions, onReorderTags, onReorderKinds, onReorderStatuses, onUploadAttachment, onSaveAttachments, onUpdateField, onRemoveCustomerOption, onRemoveContactOption, onRemoveChargeOption, onRemoveModelOption }) {
       const [subject, setSubject] = useState(initial?.subject || "");
       const [kind, setKind] = useState(initial?.kind || "");
       const [code, setCode] = useState(initial?.code || "");
@@ -4202,6 +4279,7 @@
                     allowCreate={true}
                     onSelect={setContactName}
                     onReorder={onReorderContactOptions}
+                    onRemoveOption={onRemoveContactOption}
                   />
                 </div>
               </div>
@@ -4217,6 +4295,7 @@
                     allowCreate={true}
                     onSelect={setCustomer}
                     onReorder={onReorderCustomerOptions}
+                    onRemoveOption={onRemoveCustomerOption}
                   />
                 </div>
               </div>
@@ -4232,6 +4311,7 @@
                     allowCreate={true}
                     onSelect={setPersonInCharge}
                     onReorder={onReorderChargeOptions}
+                    onRemoveOption={onRemoveChargeOption}
                   />
                 </div>
               </div>
@@ -4247,6 +4327,7 @@
                     allowCreate={true}
                     onSelect={setModel}
                     onReorder={onReorderModelOptions}
+                    onRemoveOption={onRemoveModelOption}
                   />
                 </div>
               </div>
@@ -4469,24 +4550,24 @@
               </div>
             </div>
 
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 16, paddingTop: 12, borderTop: `1px solid ${rule}` }}>
-              <div style={{ display: "flex", gap: 8 }}>
-                <button type="button" style={styles.equipLinkBtn} onClick={handleOpenEquipFromForm}>
+            <div className="record-form-footer-row" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 16, paddingTop: 12, borderTop: `1px solid ${rule}`, flexWrap: "wrap", gap: 8 }}>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <button type="button" style={{ ...styles.equipLinkBtn, whiteSpace: "nowrap" }} onClick={handleOpenEquipFromForm}>
                   <ClipboardList size={14} /> 機器点検票を開く
                 </button>
                 {initial?.id && onDelete && (
                   <button
                     type="button"
-                    style={{ ...styles.equipLinkBtn, color: "var(--clrc9573f)", borderColor: "var(--clrc9573f)" }}
+                    style={{ ...styles.equipLinkBtn, color: "var(--clrc9573f)", borderColor: "var(--clrc9573f)", whiteSpace: "nowrap" }}
                     onClick={() => onDelete(initial.id)}
                   >
                     <Trash2 size={14} /> 削除
                   </button>
                 )}
               </div>
-              <div style={{ display: "flex", gap: 8 }}>
-                <button style={styles.ghostBtn} onClick={onCancel}>キャンセル</button>
-                <button style={styles.primaryBtn} onClick={submit}><Save size={14} /> 保存</button>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <button style={{ ...styles.ghostBtn, whiteSpace: "nowrap" }} onClick={onCancel}>キャンセル</button>
+                <button style={{ ...styles.primaryBtn, whiteSpace: "nowrap" }} onClick={submit}><Save size={14} /> 保存</button>
               </div>
             </div>
           </div>
@@ -6110,7 +6191,7 @@
       dtDateBtnNotion: {
         display: "flex", alignItems: "center", gap: 6, padding: "4px 8px",
         background: "transparent", border: "1px solid transparent", borderRadius: 5, color: "var(--clrbeb7a6)",
-        fontSize: 12.5, cursor: "pointer", textAlign: "left", transition: "all 0.12s",
+        fontSize: 12.5, cursor: "pointer", textAlign: "left", transition: "all 0.12s", whiteSpace: "nowrap",
       },
       dtTimeInputNotion: {
         width: 80, padding: "3px 6px", background: "transparent", border: "1px solid transparent",
