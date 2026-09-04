@@ -857,14 +857,12 @@
       const autoSyncToCloud = async (currentRecords) => {
         if (!gasUrl.trim()) return;
         try {
-          const res = await fetch(gasUrl.trim(), {
+          await fetch(gasUrl.trim(), {
             method: "POST",
-            mode: "cors",
+            mode: "no-cors",
             headers: { "Content-Type": "text/plain;charset=utf-8" },
             body: JSON.stringify({ syncRecords: currentRecords }),
           });
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          setSyncError(false);
         } catch (e) {
           console.error("Auto sync push error:", e);
           setSyncError(true);
@@ -881,6 +879,7 @@
           });
           if (!res.ok) return;
           const json = await res.json();
+          setSyncError(false);
           if (json && Array.isArray(json.records) && json.records.length > 0) {
             setRecords(prev => {
               const map = new Map(prev.map(r => [r.id, r]));
