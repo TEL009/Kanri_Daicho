@@ -854,6 +854,16 @@
       const sorted = useMemo(() => defaultDateSort(filtered), [filtered]);
 
       // ---------- Enhanced Cloud (GAS) Background Sync ----------
+      // 直近でローカル編集した記録IDと時刻を記録しておき、自動取得(クラウド→ローカル)がまだ
+      // 反映しきっていない古いデータで上書きしてしまう競合(ボード移動・日付入力が一瞬で戻る症状)を防ぐ
+      const recentlyEditedRef = useRef({});
+      const RECENT_EDIT_GRACE_MS = 20000;
+      const markRecentlyEdited = (idOrIds) => {
+        const ids = Array.isArray(idOrIds) ? idOrIds : [idOrIds];
+        const now = Date.now();
+        ids.forEach(id => { recentlyEditedRef.current[id] = now; });
+      };
+
       const autoSyncToCloud = async (currentRecords) => {
         if (!gasUrl.trim()) return;
         try {
@@ -886,6 +896,10 @@
               let hasChange = false;
               json.records.forEach(r => {
                 if (r.id) {
+                  // 直近(20秒以内)にローカルで編集した記録は、まだクラウド側の反映が終わっていない
+                  // 可能性があるため、この取得では上書きせずスキップする
+                  const editedAt = recentlyEditedRef.current[r.id];
+                  if (editedAt && Date.now() - editedAt < RECENT_EDIT_GRACE_MS) return;
                   const cleaned = {
                     ...r,
                     precheckDate: toISODate(r.precheckDate),
@@ -963,6 +977,7 @@
         targetRecord = computeAutoStatus(targetRecord, validStatuses, kinds);
         nextRecords = rec.id ? records.map(r => r.id === rec.id ? targetRecord : r) : [...records, targetRecord];
         setRecords(nextRecords);
+        markRecentlyEdited(targetRecord.id);
         autoSyncToCloud(nextRecords);
 
         // 新規/編集フォームで入力した得意先・営業担当・担当者・型式は、次回から選択肢として使い回せるよう記録する
@@ -1002,6 +1017,7 @@
           nextRecords = records.map(r => r.id === id ? { ...r, [field]: value } : r);
         }
         setRecords(nextRecords);
+        markRecentlyEdited(id);
         autoSyncToCloud(nextRecords);
       };
 
@@ -1015,6 +1031,7 @@
           return computeAutoStatus(updated, getStatusesForKind(updated.kind || "校正"), kinds);
         });
         setRecords(nextRecords);
+        markRecentlyEdited(id);
         autoSyncToCloud(nextRecords);
       };
 
@@ -1022,6 +1039,7 @@
         pushUndo();
         const nextRecords = records.map(r => r.id === recordId ? { ...r, equipmentSheets } : r);
         setRecords(nextRecords);
+        markRecentlyEdited(recordId);
         autoSyncToCloud(nextRecords);
         if (editing && editing.id === recordId) {
           setEditing(prev => ({ ...prev, equipmentSheets }));
@@ -1033,6 +1051,7 @@
         pushUndo();
         const nextRecords = records.map(r => r.id === recordId ? { ...r, attachments } : r);
         setRecords(nextRecords);
+        markRecentlyEdited(recordId);
         autoSyncToCloud(nextRecords);
         if (editing && editing.id === recordId) {
           setEditing(prev => ({ ...prev, attachments }));
@@ -1142,6 +1161,7 @@
         pushUndo();
         const nextRecords = records.map(r => r.id === recordId ? { ...r, status: newStatus } : r);
         setRecords(nextRecords);
+        markRecentlyEdited(recordId);
         autoSyncToCloud(nextRecords);
       };
 
@@ -1247,6 +1267,8 @@
             const map = new Map(records.map(r => [r.id, r]));
             json.records.forEach(r => {
               if (r.id) {
+                const editedAt = recentlyEditedRef.current[r.id];
+                if (editedAt && Date.now() - editedAt < RECENT_EDIT_GRACE_MS) return;
                 map.set(r.id, {
                   ...r,
                   precheckDate: toISODate(r.precheckDate),
