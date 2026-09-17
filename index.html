@@ -863,6 +863,12 @@
         const now = Date.now();
         ids.forEach(id => { recentlyEditedRef.current[id] = now; });
       };
+      // 削除した記録IDも同様に一定時間覚えておき、クラウド側の反映が追いついていない間に
+      // 「まだ削除前のデータ」が返ってきて復活してしまう(削除したのに残る)のを防ぐ
+      const recentlyDeletedRef = useRef({});
+      const markRecentlyDeleted = (id) => {
+        recentlyDeletedRef.current[id] = Date.now();
+      };
 
       const autoSyncToCloud = async (currentRecords) => {
         if (!gasUrl.trim()) return;
@@ -896,6 +902,10 @@
               let hasChange = false;
               json.records.forEach(r => {
                 if (r.id) {
+                  // 直近に削除した記録は、クラウド側の反映が追いついていないだけの可能性があるため、
+                  // まだ削除前のデータが返ってきても復活させない
+                  const deletedAt = recentlyDeletedRef.current[r.id];
+                  if (deletedAt && Date.now() - deletedAt < RECENT_EDIT_GRACE_MS) return;
                   // 直近(20秒以内)にローカルで編集した記録は、まだクラウド側の反映が終わっていない
                   // 可能性があるため、この取得では上書きせずスキップする
                   const editedAt = recentlyEditedRef.current[r.id];
@@ -999,6 +1009,7 @@
         pushUndo();
         const nextRecords = records.filter(r => r.id !== id);
         setRecords(nextRecords);
+        markRecentlyDeleted(id);
         autoSyncToCloud(nextRecords);
       };
 
@@ -1267,6 +1278,8 @@
             const map = new Map(records.map(r => [r.id, r]));
             json.records.forEach(r => {
               if (r.id) {
+                const deletedAt = recentlyDeletedRef.current[r.id];
+                if (deletedAt && Date.now() - deletedAt < RECENT_EDIT_GRACE_MS) return;
                 const editedAt = recentlyEditedRef.current[r.id];
                 if (editedAt && Date.now() - editedAt < RECENT_EDIT_GRACE_MS) return;
                 map.set(r.id, {
