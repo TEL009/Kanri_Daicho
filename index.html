@@ -633,6 +633,7 @@
         document.documentElement.dataset.theme = theme;
       }, [theme]);
       const [syncing, setSyncing] = useState(false);
+      const [initialSyncDone, setInitialSyncDone] = useState(false);
       const [syncError, setSyncError] = useState(false);
       const [showCloudConfig, setShowCloudConfig] = useState(false);
       const [footerCollapsed, setFooterCollapsed] = useState(true);
@@ -719,6 +720,9 @@
       // (2)期日を過ぎた予定のステータスを自動で前進させる(手動編集を伴わないため、この処理自体は履歴に積まない)
       useEffect(() => {
         if (!ready) return;
+        // クラウド連携が設定されている場合、初回のクラウド取得(最新データの反映)が終わるまでは
+        // この自動整理・自動送信を待つ(でないと端末に残っていた古いデータでクラウドを上書きしてしまう)
+        if (gasUrl.trim() && !initialSyncDone) return;
         // 過去に保存された列順に、後から追加された列(例: 種別)が含まれていない場合は末尾に補う
         const missingCols = Object.keys(TABLE_COLUMN_DEFS).filter(k => !tableColumnOrder.includes(k));
         if (missingCols.length > 0) {
@@ -744,7 +748,7 @@
           autoSyncToCloud(next);
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-      }, [ready]);
+      }, [ready, initialSyncDone]);
 
       const getColor = useCallback((val, fallbackIdx = 0) => {
         if (!val) return "var(--clr6b6658)";
@@ -930,11 +934,23 @@
                   }
                 }
               });
+              // クラウド側に存在しなくなったレコード(=他の端末で削除された)は、こちらでも削除する。
+              // ただし直近で自分がローカル編集・作成したばかりのもの(まだクラウドに反映されていないだけ)は消さない
+              const cloudIds = new Set(json.records.map(r => r.id).filter(Boolean));
+              for (const localId of Array.from(map.keys())) {
+                if (cloudIds.has(localId)) continue;
+                const editedAt = recentlyEditedRef.current[localId];
+                if (editedAt && Date.now() - editedAt < RECENT_EDIT_GRACE_MS) continue;
+                map.delete(localId);
+                hasChange = true;
+              }
               return hasChange ? Array.from(map.values()) : prev;
             });
           }
         } catch (e) {
           console.warn("Silent cloud fetch skipped:", e);
+        } finally {
+          setInitialSyncDone(true);
         }
       }, [gasUrl, syncing]);
 
@@ -1297,9 +1313,18 @@
                 });
               }
             });
+            // クラウドに存在しなくなったレコード(他の端末で削除された)はこちらでも削除する
+            const cloudIds = new Set(json.records.map(r => r.id).filter(Boolean));
+            for (const localId of Array.from(map.keys())) {
+              if (cloudIds.has(localId)) continue;
+              const editedAt = recentlyEditedRef.current[localId];
+              if (editedAt && Date.now() - editedAt < RECENT_EDIT_GRACE_MS) continue;
+              map.delete(localId);
+            }
             const merged = Array.from(map.values());
             setRecords(merged);
             setSyncError(false);
+            setInitialSyncDone(true);
             alert(`クラウドから ${json.records.length} 件のデータを取得・統合しました。`);
           } else {
             alert("データの取得に失敗しました。正しいURLか確認してください。");
@@ -3801,6 +3826,16 @@
           if (r.status && map[r.status]) map[r.status].push(r);
           else unassigned.push(r);
         }
+        // 各列内は記載(登録)順ではなく、件名→同件名なら受付日時の順に並べる
+        const bySubjectThenReceived = (a, b) => {
+          const subjA = a.subject || "";
+          const subjB = b.subject || "";
+          const cmp = subjA.localeCompare(subjB, "ja");
+          if (cmp !== 0) return cmp;
+          return (a.receivedDate || "").localeCompare(b.receivedDate || "");
+        };
+        for (const s of statuses) map[s].sort(bySubjectThenReceived);
+        unassigned.sort(bySubjectThenReceived);
         return { map, unassigned };
       }, [records, statuses]);
 
