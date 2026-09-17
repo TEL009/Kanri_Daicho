@@ -3927,9 +3927,12 @@
               {collapsedStatuses.map((status) => (
                 <div
                   key={status}
-                  style={styles.boardCollapsedRow}
+                  style={{ ...styles.boardCollapsedRow, ...(overStatus === status ? styles.boardCollapsedRowDragOver : {}) }}
                   onClick={() => onExpandStatus(status)}
-                  title="クリックで通常表示に戻す"
+                  onDragOver={(e) => { e.preventDefault(); if (dragCardId) setOverStatus(status); }}
+                  onDragLeave={() => setOverStatus(prev => (prev === status ? null : prev))}
+                  onDrop={(e) => { onColumnDrop(e, status); setOverStatus(null); }}
+                  title="クリックで通常表示に戻す（ここにドラッグしてタスクを移動することもできます）"
                 >
                   <span style={{ ...styles.boardCollapsedDot, background: getColor(status, statuses.indexOf(status)) }} />
                   <span style={styles.boardCollapsedName}>{status}</span>
@@ -6224,6 +6227,9 @@
       boardCollapsedTitle: { fontSize: 11, color: inkDim, marginBottom: 8, letterSpacing: "0.04em" },
       boardCollapsedRow: {
         display: "flex", alignItems: "center", gap: 7, padding: "7px 6px", borderRadius: 6, cursor: "pointer",
+      },
+      boardCollapsedRowDragOver: {
+        background: "rgba(198,138,61,0.16)", boxShadow: "inset 0 0 0 1.5px var(--clrc68a3d)",
       },
       boardCollapsedDot: { width: 8, height: 8, borderRadius: "50%", flexShrink: 0 },
       boardCollapsedName: { flex: 1, fontSize: 12, color: "var(--clrc7c1b3)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
