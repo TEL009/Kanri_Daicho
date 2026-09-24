@@ -3361,6 +3361,104 @@
       );
     }
 
+    // ================= Mobile Board View (縦積み一覧 → タップでドリルダウン) =================
+    // 横スクロールのカンバンはスマホだと見づらいため、ステータスを縦に並べた一覧から、
+    // タップした先で別画面(ドリルダウン)としてそのステータスのタスク一覧を開く形にする。
+    // ステータス移動はドラッグ&ドロップの代わりに、カード内のプルダウンで行う。
+    function MobileBoardView({ records, statuses, onEdit, onMoveStatus, getColor }) {
+      const [openStatus, setOpenStatus] = useState(null);
+
+      const byStatus = useMemo(() => {
+        const map = {};
+        for (const s of statuses) map[s] = [];
+        for (const r of records) {
+          if (r.status && map[r.status]) map[r.status].push(r);
+        }
+        const bySubjectThenReceived = (a, b) => {
+          const cmp = (a.subject || "").localeCompare(b.subject || "", "ja");
+          if (cmp !== 0) return cmp;
+          return (a.receivedDate || "").localeCompare(b.receivedDate || "");
+        };
+        for (const s of statuses) map[s].sort(bySubjectThenReceived);
+        return map;
+      }, [records, statuses]);
+
+      if (openStatus) {
+        const items = byStatus[openStatus] || [];
+        return (
+          <div>
+            <button
+              onClick={() => setOpenStatus(null)}
+              style={{ display: "flex", alignItems: "center", gap: 4, background: "transparent", border: "none", color: "var(--clrc68a3d)", fontSize: 13, fontWeight: 600, padding: "4px 0", marginBottom: 10 }}
+            >
+              <ChevronLeft size={16} /> ステータス一覧に戻る
+            </button>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+              <span style={{ width: 10, height: 10, borderRadius: 999, background: getColor(openStatus, statuses.indexOf(openStatus)), flexShrink: 0 }} />
+              <div style={{ fontSize: 16, fontWeight: 700, color: "var(--clre9e4d8)" }}>{openStatus}</div>
+              <span style={{ fontSize: 12, color: "var(--clr8f8a7c)" }}>{items.length}件</span>
+            </div>
+            {items.length === 0 ? (
+              <div style={{ textAlign: "center", color: "var(--clr8f8a7c)", fontSize: 13, padding: "30px 0" }}>該当する案件がありません</div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {items.map(r => (
+                  <div key={r.id} style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid var(--clr3a352b)", background: "var(--clr1c1a15)" }}>
+                    <div onClick={() => onEdit(r)} style={{ cursor: "pointer" }}>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: "var(--clre9e4d8)" }}>
+                        {r.subject || "（無題）"}
+                        {isUnorganized(r) && <span style={styles.unorganizedBadge}>未整理</span>}
+                      </div>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginTop: 5 }}>
+                        {r.kind && <span style={{ fontSize: 10.5, padding: "1px 6px", borderRadius: 5, background: getColor(r.kind, 0), color: "var(--clrf4efe3)" }}>{r.kind}</span>}
+                        {r.customer && <span style={{ fontSize: 10.5, padding: "1px 6px", borderRadius: 5, background: "var(--clr26221a)", color: "var(--clrc7c1b3)" }}>{r.customer}</span>}
+                      </div>
+                      {r.content && (
+                        <div style={{ fontSize: 12, color: "var(--clr8f8a7c)", marginTop: 5, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>
+                          {r.content}
+                        </div>
+                      )}
+                    </div>
+                    <select
+                      value={r.status}
+                      onChange={(e) => onMoveStatus(r.id, e.target.value)}
+                      onClick={(e) => e.stopPropagation()}
+                      style={{
+                        marginTop: 8, width: "100%", padding: "6px 8px", borderRadius: 7, fontSize: 12,
+                        background: "var(--clr151310)", color: "var(--clrc7c1b3)", border: "1px solid var(--clr3a352b)",
+                      }}
+                    >
+                      {statuses.map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      }
+
+      return (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {statuses.map(status => (
+            <div
+              key={status}
+              onClick={() => setOpenStatus(status)}
+              style={{
+                display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", borderRadius: 10,
+                border: "1px solid var(--clr3a352b)", background: "var(--clr1c1a15)", cursor: "pointer",
+              }}
+            >
+              <span style={{ width: 10, height: 10, borderRadius: 999, background: getColor(status, statuses.indexOf(status)), flexShrink: 0 }} />
+              <span style={{ flex: 1, fontSize: 14, fontWeight: 600, color: "var(--clre9e4d8)" }}>{status}</span>
+              <span style={{ fontSize: 12, color: "var(--clr8f8a7c)" }}>{(byStatus[status] || []).length}件</span>
+              <ChevronRight size={16} color="var(--clr8f8a7c)" />
+            </div>
+          ))}
+        </div>
+      );
+    }
+
     function MobilePhoneView({
       records, allRecords, codes, tags, searchQuery, setSearchQuery, onAdd, onEdit, onDelete, onOpenEquip, getColor,
       exportBackup, exportScheduleXlsx, exportScheduleIcs, onImportBackupClick, gasUrl, syncing, syncError, fetchFromCloud, onOpenCloudConfig,
@@ -3477,20 +3575,11 @@
                   }}
                 >校正</button>
               </div>
-              <BoardView
+              <MobileBoardView
                 records={boardFilteredRecords}
-                codes={codes}
-                tags={tags}
-                boardRouteFilter={boardRouteFilter}
                 statuses={activeBoardStatuses}
-                statusVisibility={statusVisibility}
-                layout={boardLayout}
                 onEdit={onEdit}
-                onDelete={onDelete}
-                onOpenEquip={onOpenEquip}
                 onMoveStatus={onMoveStatus}
-                onReorderStatuses={onReorderStatuses}
-                onExpandStatus={onExpandStatus}
                 getColor={getColor}
               />
             </div>
