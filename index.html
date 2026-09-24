@@ -487,6 +487,8 @@
     // ・ステータスは後退させない(すでに先に進んでいる場合は上書きしない)
     // ・カスタマイズでステータス名が変更/削除されている場合は何もしない(名前が一致しないため)
     const AUTO_STATUS_TERMINAL = ["対応終了分", "やらない"];
+    // クイック登録などで拠点名・種別だけ先に登録し、日程がまだ1つも入っていない案件を「未整理」として扱う
+    const isUnorganized = (r) => !r.visitDate && !r.precheckDate && !r.workDate && !r.honkouseiDate;
     const computeAutoStatus = (record, statusList, kinds) => {
       if (!record || !Array.isArray(statusList) || statusList.length === 0) return record;
       const currentStatus = record.status || "";
@@ -640,7 +642,7 @@
       const device = useViewport(); // "phone" | "tablet" | "desktop"
 
       const [showColumnAdmin, setShowColumnAdmin] = useState(false);
-      const [view, setView] = useState("table");
+      const [view, setView] = useState("board");
       const [showForm, setShowForm] = useState(false);
       const [showQuickAdd, setShowQuickAdd] = useState(false);
       const [editing, setEditing] = useState(null);
@@ -654,6 +656,7 @@
       });
       const [calAxis, setCalAxis] = useState("all");
       const [searchQuery, setSearchQuery] = useState("");
+      const [hideCompleted, setHideCompleted] = useState(true); // 既定で「残タスクのみ」表示(対応終了分・やらないを除外)
       const [showEquip, setShowEquip] = useState(null);
       const [showShortcuts, setShowShortcuts] = useState(false);
       const [showStatusAdmin, setShowStatusAdmin] = useState(false);
@@ -799,6 +802,9 @@
       // 複合フィルター＆検索(検索・種別による絞り込みなど、台帳/ボード/カレンダー/スマホ画面すべてに共通)
       const filtered = useMemo(() => {
         let list = [...records];
+        if (hideCompleted) {
+          list = list.filter(r => !AUTO_STATUS_TERMINAL.includes(r.status));
+        }
         const q = searchQuery.trim().toLowerCase();
         if (q) {
           list = list.filter(r => {
@@ -809,7 +815,7 @@
           });
         }
         return list;
-      }, [records, searchQuery, dealerGroups]);
+      }, [records, searchQuery, dealerGroups, hideCompleted]);
 
       const defaultDateSort = (list) => {
         const next = [...list];
@@ -1650,6 +1656,7 @@
               setSearchQuery={setSearchQuery}
               onAdd={() => setShowQuickAdd(true)}
               onEdit={(r) => { setEditing(r); setShowForm(true); }}
+              onDelete={deleteRecord}
               onOpenEquip={(r) => setShowEquip(r)}
               getColor={getColor}
               exportBackup={exportBackup}
@@ -1667,6 +1674,16 @@
               setCalAxis={setCalAxis}
               theme={theme}
               setTheme={setTheme}
+              hideCompleted={hideCompleted}
+              setHideCompleted={setHideCompleted}
+              boardRouteFilter={boardRouteFilter}
+              setBoardRouteFilter={setBoardRouteFilter}
+              activeBoardStatuses={activeBoardStatuses}
+              statusVisibility={statusVisibility}
+              boardLayout={boardLayout}
+              onMoveStatus={moveRecordStatus}
+              onReorderStatuses={(from, to) => reorderStatuses(boardRouteFilter, from, to)}
+              onExpandStatus={(s) => toggleStatusHidden(s, "visible")}
             />
           ) : (
           <React.Fragment>
@@ -1741,6 +1758,13 @@
                 <button style={styles.searchClear} onClick={() => setSearchQuery("")}><X size={13} /></button>
               )}
             </div>
+            <button
+              style={{ ...styles.ghostBtn, ...(hideCompleted ? styles.viewBtnActive : {}) }}
+              onClick={() => setHideCompleted(v => !v)}
+              title="対応終了分・やらないを一覧から除外して表示します"
+            >
+              {hideCompleted ? <Eye size={14} /> : <EyeOff size={14} />} 残タスクのみ
+            </button>
             {view === "table" && (
               <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
                 {(activeColumnSort || Object.keys(activeColumnFilters).length > 0) && (
@@ -2837,7 +2861,9 @@
       const renderCellContent = (key, r) => {
         switch (key) {
           case "subject":
-            return r.subject || <span className="ledger-empty-plus">＋</span>;
+            return r.subject
+              ? <>{r.subject}{isUnorganized(r) && <span style={styles.unorganizedBadge}>未整理</span>}</>
+              : <span className="ledger-empty-plus">＋</span>;
           case "kind":
             return r.kind
               ? <span style={{ ...styles.pill, background: getColor(r.kind, 0) }}>{r.kind}</span>
@@ -3335,9 +3361,20 @@
       );
     }
 
-    function MobilePhoneView({ records, allRecords, codes, tags, searchQuery, setSearchQuery, onAdd, onEdit, onOpenEquip, getColor, exportBackup, exportScheduleXlsx, exportScheduleIcs, onImportBackupClick, gasUrl, syncing, syncError, fetchFromCloud, onOpenCloudConfig, calCursor, setCalCursor, calAxis, setCalAxis, theme, setTheme }) {
+    function MobilePhoneView({
+      records, allRecords, codes, tags, searchQuery, setSearchQuery, onAdd, onEdit, onDelete, onOpenEquip, getColor,
+      exportBackup, exportScheduleXlsx, exportScheduleIcs, onImportBackupClick, gasUrl, syncing, syncError, fetchFromCloud, onOpenCloudConfig,
+      calCursor, setCalCursor, calAxis, setCalAxis, theme, setTheme, hideCompleted, setHideCompleted,
+      boardRouteFilter, setBoardRouteFilter, activeBoardStatuses, statusVisibility, boardLayout, onMoveStatus, onReorderStatuses, onExpandStatus,
+    }) {
       const [showMenu, setShowMenu] = useState(false);
-      const [mobileTab, setMobileTab] = useState("list"); // "list" | "calendar"
+      const [mobileTab, setMobileTab] = useState("board"); // "board" | "list" | "calendar"
+
+      const boardFilteredRecords = useMemo(() => allRecords.filter(r => {
+        if (boardRouteFilter === "校正") return r.kind === "校正";
+        if (boardRouteFilter === "機器設置") return r.kind === "機器設置";
+        return r.kind !== "校正" && r.kind !== "機器設置";
+      }), [allRecords, boardRouteFilter]);
 
       const fmtDateShort = (iso, time) => {
         if (!iso) return "";
@@ -3368,12 +3405,12 @@
 
           <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
             <button
-              onClick={() => setMobileTab("list")}
+              onClick={() => setMobileTab("board")}
               style={{
                 flex: 1, padding: "9px 0", borderRadius: 9, fontSize: 13, fontWeight: 600, border: "1px solid var(--clr3a352b)",
-                background: mobileTab === "list" ? "var(--clrc68a3d)" : "var(--clr1c1a15)", color: mobileTab === "list" ? "var(--clr151310)" : "var(--clrc7c1b3)",
+                background: mobileTab === "board" ? "var(--clrc68a3d)" : "var(--clr1c1a15)", color: mobileTab === "board" ? "var(--clr151310)" : "var(--clrc7c1b3)",
               }}
-            >リスト</button>
+            >ボード</button>
             <button
               onClick={() => setMobileTab("calendar")}
               style={{
@@ -3381,6 +3418,13 @@
                 background: mobileTab === "calendar" ? "var(--clrc68a3d)" : "var(--clr1c1a15)", color: mobileTab === "calendar" ? "var(--clr151310)" : "var(--clrc7c1b3)",
               }}
             >カレンダー</button>
+            <button
+              onClick={() => setMobileTab("list")}
+              style={{
+                flex: 1, padding: "9px 0", borderRadius: 9, fontSize: 13, fontWeight: 600, border: "1px solid var(--clr3a352b)",
+                background: mobileTab === "list" ? "var(--clrc68a3d)" : "var(--clr1c1a15)", color: mobileTab === "list" ? "var(--clr151310)" : "var(--clrc7c1b3)",
+              }}
+            >リスト</button>
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 12px", borderRadius: 10, border: "1px solid var(--clr3a352b)", background: "var(--clr151310)", marginBottom: 12 }}>
@@ -3394,9 +3438,63 @@
             {searchQuery && (
               <button style={{ background: "transparent", border: "none", color: "var(--clr8f8a7c)" }} onClick={() => setSearchQuery("")}><X size={14} /></button>
             )}
+            <button
+              onClick={() => setHideCompleted(v => !v)}
+              style={{
+                display: "flex", alignItems: "center", gap: 4, padding: "5px 8px", borderRadius: 7, fontSize: 11.5, fontWeight: 600, whiteSpace: "nowrap",
+                border: `1px solid ${hideCompleted ? "var(--clrc68a3d)" : "var(--clr3a352b)"}`,
+                background: hideCompleted ? "rgba(198,138,61,0.14)" : "transparent",
+                color: hideCompleted ? "var(--clrc68a3d)" : "var(--clr8f8a7c)",
+              }}
+              title="対応終了分・やらないを除外"
+            >
+              {hideCompleted ? <Eye size={13} /> : <EyeOff size={13} />} 残タスク
+            </button>
           </div>
 
-          {mobileTab === "calendar" ? (
+          {mobileTab === "board" ? (
+            <div style={{ paddingBottom: 90 }}>
+              <div style={{ display: "flex", gap: 6, marginBottom: 10, overflowX: "auto" }}>
+                <button
+                  onClick={() => setBoardRouteFilter("修理・点検")}
+                  style={{
+                    padding: "6px 10px", borderRadius: 8, fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", border: "1px solid var(--clr3a352b)",
+                    background: boardRouteFilter === "修理・点検" ? "var(--clrc68a3d)" : "transparent", color: boardRouteFilter === "修理・点検" ? "var(--clr151310)" : "var(--clrc7c1b3)",
+                  }}
+                >修理・点検</button>
+                <button
+                  onClick={() => setBoardRouteFilter("機器設置")}
+                  style={{
+                    padding: "6px 10px", borderRadius: 8, fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", border: "1px solid var(--clr3a352b)",
+                    background: boardRouteFilter === "機器設置" ? "var(--clrc68a3d)" : "transparent", color: boardRouteFilter === "機器設置" ? "var(--clr151310)" : "var(--clrc7c1b3)",
+                  }}
+                >設置</button>
+                <button
+                  onClick={() => setBoardRouteFilter("校正")}
+                  style={{
+                    padding: "6px 10px", borderRadius: 8, fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", border: "1px solid var(--clr3a352b)",
+                    background: boardRouteFilter === "校正" ? "var(--clrc68a3d)" : "transparent", color: boardRouteFilter === "校正" ? "var(--clr151310)" : "var(--clrc7c1b3)",
+                  }}
+                >校正</button>
+              </div>
+              <BoardView
+                records={boardFilteredRecords}
+                codes={codes}
+                tags={tags}
+                boardRouteFilter={boardRouteFilter}
+                statuses={activeBoardStatuses}
+                statusVisibility={statusVisibility}
+                layout={boardLayout}
+                onEdit={onEdit}
+                onDelete={onDelete}
+                onOpenEquip={onOpenEquip}
+                onMoveStatus={onMoveStatus}
+                onReorderStatuses={onReorderStatuses}
+                onExpandStatus={onExpandStatus}
+                getColor={getColor}
+              />
+            </div>
+          ) : mobileTab === "calendar" ? (
             <div style={{ paddingBottom: 90 }}>
               <CalendarView
                 records={allRecords}
@@ -3425,7 +3523,10 @@
                 style={{ padding: "12px 14px", borderRadius: 12, border: "1px solid var(--clr3a352b)", background: "var(--clr1c1a15)", cursor: "pointer" }}
               >
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
-                  <div style={{ fontSize: 15, fontWeight: 600, color: "var(--clre9e4d8)" }}>{r.subject || "(拠点名未入力)"}</div>
+                  <div style={{ fontSize: 15, fontWeight: 600, color: "var(--clre9e4d8)" }}>
+                    {r.subject || "(拠点名未入力)"}
+                    {isUnorganized(r) && <span style={styles.unorganizedBadge}>未整理</span>}
+                  </div>
                   {r.status && (
                     <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 999, whiteSpace: "nowrap", background: getColor(r.status, 0), color: "var(--clr151310)", fontWeight: 600 }}>
                       {r.status}
@@ -3916,7 +4017,10 @@
                           onMouseEnter={(e) => handleMouseEnter(e, r)}
                           onClick={() => onEdit(r)}
                         >
-                          <div style={styles.boardCardTitle}>{r.subject || "（無題）"}</div>
+                          <div style={styles.boardCardTitle}>
+                            {r.subject || "（無題）"}
+                            {isUnorganized(r) && <span style={styles.unorganizedBadge}>未整理</span>}
+                          </div>
                           {r.kind && <span style={{ ...styles.pill, background: getColor(r.kind, 0), fontSize: 10, padding: "1px 5px", marginBottom: 4 }}>{r.kind}</span>}
                           {r.content ? (
                             <div style={styles.boardCardContent}>{r.content}</div>
@@ -6252,6 +6356,10 @@
       },
       boardCardDragging: { opacity: 0.35 },
       boardCardTitle: { fontSize: 12.5, fontWeight: 600, color: "var(--clre8e3d9)", marginBottom: 3 },
+      unorganizedBadge: {
+        marginLeft: 6, fontSize: 9.5, fontWeight: 700, padding: "1px 5px", borderRadius: 4,
+        background: "rgba(198,138,61,0.16)", color: "var(--clrc68a3d)", verticalAlign: "middle",
+      },
       boardCardContent: { fontSize: 11.5, color: "var(--clrbeb7a6)", lineHeight: 1.4, marginTop: 4 },
       boardUnassigned: { border: `1px dashed ${rule}`, borderRadius: 10, padding: 12 },
       boardUnassignedList: { display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8 },
