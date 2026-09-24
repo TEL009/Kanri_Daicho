@@ -3525,10 +3525,10 @@
             >リスト</button>
           </div>
 
-          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 12px", borderRadius: 10, border: "1px solid var(--clr3a352b)", background: "var(--clr151310)", marginBottom: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 12px", borderRadius: 10, border: "1px solid var(--clr3a352b)", background: "var(--clr151310)", marginBottom: 8 }}>
             <Search size={14} color="var(--clr6b6658)" />
             <input
-              style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: "var(--clre9e4d8)", fontSize: 14 }}
+              style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: "var(--clre9e4d8)", fontSize: 14, minWidth: 0 }}
               placeholder="検索(拠点名・得意先など)"
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
@@ -3536,10 +3536,13 @@
             {searchQuery && (
               <button style={{ background: "transparent", border: "none", color: "var(--clr8f8a7c)" }} onClick={() => setSearchQuery("")}><X size={14} /></button>
             )}
+          </div>
+
+          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
             <button
               onClick={() => setHideCompleted(v => !v)}
               style={{
-                display: "flex", alignItems: "center", gap: 4, padding: "5px 8px", borderRadius: 7, fontSize: 11.5, fontWeight: 600, whiteSpace: "nowrap",
+                display: "flex", alignItems: "center", gap: 4, padding: "5px 10px", borderRadius: 7, fontSize: 11.5, fontWeight: 600, whiteSpace: "nowrap",
                 border: `1px solid ${hideCompleted ? "var(--clrc68a3d)" : "var(--clr3a352b)"}`,
                 background: hideCompleted ? "rgba(198,138,61,0.14)" : "transparent",
                 color: hideCompleted ? "var(--clrc68a3d)" : "var(--clr8f8a7c)",
