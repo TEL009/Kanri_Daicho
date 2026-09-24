@@ -3915,91 +3915,11 @@
     }
 
     // ================= Board View =================
-    function BoardCardFloatingDetail({ record, anchorRect, onEdit, onDelete, onOpenEquip, onClose }) {
-      if (!anchorRect) return null;
-      const width = 310;
-      const margin = 12;
-      let left = anchorRect.right + 10;
-      if (left + width + margin > window.innerWidth) {
-        left = Math.max(margin, anchorRect.left - width - 10);
-      }
-      let top = anchorRect.top - 4;
-      if (top + 340 > window.innerHeight) {
-        top = Math.max(margin, window.innerHeight - 350);
-      }
-
-      return (
-        <div
-          style={{
-            ...styles.floatingCardPopup,
-            left, top, width,
-          }}
-          onClick={e => e.stopPropagation()}
-        >
-          <div style={styles.floatingHead}>
-            <div style={styles.floatingTitle}>{record.subject || "（無題）"}</div>
-            <button style={styles.floatingCloseBtn} onClick={onClose}><X size={15} /></button>
-          </div>
-          <div style={styles.floatingBlueLine} />
-
-          <div style={styles.floatingBody}>
-            <div style={styles.floatingRow}>
-              <span style={styles.floatingLabel}>設置場所 / 拠点</span>
-              <span style={{ ...styles.floatingVal, color: amber, fontWeight: 600 }}>{record.subject || "—"}</span>
-            </div>
-            <div style={styles.floatingRow}>
-              <span style={styles.floatingLabel}>得意先</span>
-              <span style={styles.floatingVal}>{record.customer || "—"}</span>
-            </div>
-            <div style={styles.floatingRow}>
-              <span style={styles.floatingLabel}>型式</span>
-              <span style={styles.floatingVal}>{record.model || "—"}</span>
-            </div>
-            <div style={styles.floatingRow}>
-              <span style={styles.floatingLabel}>製造番号・年式</span>
-              <span style={styles.floatingVal}>{record.serialYear || "—"}</span>
-            </div>
-            <div style={styles.floatingRow}>
-              <span style={styles.floatingLabel}>営業 / 担当</span>
-              <span style={styles.floatingVal}>{[record.contactName, record.personInCharge].filter(Boolean).join(" / ") || "未設定"}</span>
-            </div>
-            <div style={styles.floatingRow}>
-              <span style={styles.floatingLabel}>日程</span>
-              <span style={styles.floatingVal}>
-                {record.kind === "校正"
-                  ? (record.precheckDate ? `事前: ${fmtJP(record.precheckDate, record.precheckTime)}` : (record.honkouseiDate ? `本校正: ${fmtJP(record.honkouseiDate, record.honkouseiTime)}` : "未設定"))
-                  : (record.visitDate ? `訪問: ${fmtJP(record.visitDate, record.visitTime)}` : (record.workDate ? `作業: ${fmtJP(record.workDate, record.workTime)}` : "未設定"))
-                }
-              </span>
-            </div>
-            <div style={styles.floatingRow}>
-              <span style={styles.floatingLabel}>備考</span>
-              <span style={styles.floatingVal}>{record.note || "—"}</span>
-            </div>
-          </div>
-
-          <div style={styles.floatingActions}>
-            {record.id && (
-              <button style={styles.floatingBtnGhost} onClick={() => onOpenEquip(record)}>
-                点検票
-              </button>
-            )}
-            <button style={styles.floatingBtnPrimary} onClick={() => onEdit(record)}>
-              編集
-            </button>
-            <button style={styles.floatingBtnDanger} onClick={() => onDelete(record.id)}>
-              削除
-            </button>
-          </div>
-        </div>
-      );
-    }
 
     function BoardView({ records, codes, tags, statuses, statusVisibility, layout, onEdit, onDelete, onOpenEquip, onMoveStatus, onReorderStatuses, onExpandStatus, getColor }) {
       const [dragCardId, setDragCardId] = useState(null);
       const [dragStatus, setDragStatus] = useState(null);
       const [overStatus, setOverStatus] = useState(null);
-      const [hoveredData, setHoveredData] = useState(null);
 
       const visLevel = (s) => statusVisibility[s] || "visible";
       const fullStatuses = useMemo(
@@ -4033,7 +3953,6 @@
       }, [records, statuses]);
 
       const onCardDragStart = (e, recordId) => {
-        setHoveredData(null);
         setDragCardId(recordId);
         e.dataTransfer.setData("text/plain", recordId);
         e.dataTransfer.effectAllowed = "move";
@@ -4054,22 +3973,12 @@
         setOverStatus(null);
       };
 
-      const handleMouseEnter = (e, record) => {
-        if (dragCardId) return;
-        const rect = e.currentTarget.getBoundingClientRect();
-        setHoveredData({ record, rect });
-      };
-
-      const handleMouseLeave = () => {
-        setHoveredData(null);
-      };
-
       const scrollStyle = layout === "grid"
         ? { ...styles.boardScroll, flexWrap: "wrap", overflowX: "visible" }
         : styles.boardScroll;
 
       return (
-        <div style={styles.boardOuterRow} onMouseLeave={handleMouseLeave}>
+        <div style={styles.boardOuterRow}>
           <div style={styles.boardWrap}>
             <div style={scrollStyle}>
               {fullStatuses.map((status) => (
@@ -4106,31 +4015,22 @@
                           draggable
                           onDragStart={(e) => onCardDragStart(e, r.id)}
                           onDragEnd={() => setDragCardId(null)}
-                          onMouseEnter={(e) => handleMouseEnter(e, r)}
                           onClick={() => onEdit(r)}
                         >
                           <div style={styles.boardCardTitle}>
                             {r.subject || "（無題）"}
                             {isUnorganized(r) && <span style={styles.unorganizedBadge}>未整理</span>}
                           </div>
-                          {r.kind && <span style={{ ...styles.pill, background: getColor(r.kind, 0), fontSize: 10, padding: "1px 5px", marginBottom: 4 }}>{r.kind}</span>}
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 4 }}>
+                            {r.kind && <span style={{ ...styles.pill, background: getColor(r.kind, 0), fontSize: 10, padding: "1px 5px" }}>{r.kind}</span>}
+                            {r.customer && <span style={{ ...styles.pill, background: getColor(r.customer, 0), fontSize: 10, padding: "1px 5px" }}>{r.customer}</span>}
+                          </div>
                           {r.content ? (
                             <div style={styles.boardCardContent}>{r.content}</div>
                           ) : (
                             <div style={{ fontSize: 11, color: "var(--clr605a49)" }}>内容未記入</div>
                           )}
                         </div>
-
-                        {hoveredData && hoveredData.record.id === r.id && (
-                          <BoardCardFloatingDetail
-                            record={hoveredData.record}
-                            anchorRect={hoveredData.rect}
-                            onEdit={onEdit}
-                            onDelete={onDelete}
-                            onOpenEquip={onOpenEquip}
-                            onClose={() => setHoveredData(null)}
-                          />
-                        )}
                       </div>
                     ))}
                   </div>
@@ -4143,8 +4043,9 @@
                 <div style={styles.boardColTitle}>ステータス未設定 ({byStatus.unassigned.length}件)</div>
                 <div style={styles.boardUnassignedList}>
                   {byStatus.unassigned.map(r => (
-                    <div key={r.id} style={styles.boardCard} onClick={() => onEdit(r)} onMouseEnter={(e) => handleMouseEnter(e, r)}>
+                    <div key={r.id} style={styles.boardCard} onClick={() => onEdit(r)}>
                       <div style={styles.boardCardTitle}>{r.subject || "（無題）"}</div>
+                      {r.customer && <span style={{ ...styles.pill, background: getColor(r.customer, 0), fontSize: 10, padding: "1px 5px" }}>{r.customer}</span>}
                     </div>
                   ))}
                 </div>
