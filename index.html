@@ -218,6 +218,7 @@
     const Keyboard = (p) => <Icon {...p}><rect x="2" y="4" width="20" height="16" rx="2"/><line x1="6" y1="8" x2="6.01" y2="8"/><line x1="10" y1="8" x2="10.01" y2="8"/><line x1="14" y1="8" x2="14.01" y2="8"/><line x1="18" y1="8" x2="18.01" y2="8"/><line x1="6" y1="12" x2="6.01" y2="12"/><line x1="10" y1="12" x2="10.01" y2="12"/><line x1="14" y1="12" x2="14.01" y2="12"/><line x1="18" y1="12" x2="18.01" y2="12"/><line x1="7" y1="16" x2="17" y2="16"/></Icon>;
     const Columns = (p) => <Icon {...p}><path d="M12 3h7a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-7m0-18H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h7m0-18v18"/></Icon>;
     const GripVertical = (p) => <Icon {...p}><circle cx="9" cy="12" r="1"/><circle cx="9" cy="5" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="19" r="1"/></Icon>;
+    const Check = (p) => <Icon {...p}><polyline points="20 6 9 17 4 12"/></Icon>;
     const Eye = (p) => <Icon {...p}><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></Icon>;
     const EyeOff = (p) => <Icon {...p}><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></Icon>;
     const Minus = (p) => <Icon {...p}><line x1="5" y1="12" x2="19" y2="12"/></Icon>;
@@ -235,6 +236,10 @@
     const ArrowDown = (p) => <Icon {...p}><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></Icon>;
     const Filter = (p) => <Icon {...p}><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></Icon>;
 
+    // ---------- app version ----------
+    // 〇(メジャー).△(マイナー).×(パッチ) 形式。画面右上と「クラウド連携・管理メニュー」内に表示されます。
+    const APP_VERSION = "1.0.1";
+
     // ---------- storage helpers ----------
     const REC_KEY = "kousei:records";
     const CODE_KEY = "kousei:customer-codes";
@@ -249,6 +254,7 @@
     const STATUS_SHUURI_KEY = "kousei:statuses-shuuri";
     const HIDDEN_STATUS_KEY = "kousei:status-visibility";
     const BOARD_LAYOUT_KEY = "kousei:board-layout";
+    const BOARD_SCALE_KEY = "kousei:board-scale";
     const TABLE_COL_KEY = "kousei:table-column-order";
     const TABLE_HIDDEN_COL_KEY = "kousei:table-hidden-columns";
     const TABLE_VIEWS_KEY = "kousei:table-views";
@@ -489,6 +495,9 @@
     const AUTO_STATUS_TERMINAL = ["対応終了分", "やらない"];
     // クイック登録などで拠点名・種別だけ先に登録し、日程がまだ1つも入っていない案件を「未整理」として扱う
     const isUnorganized = (r) => !r.visitDate && !r.precheckDate && !r.workDate && !r.honkouseiDate;
+    // NSS・メーカーは複数選択に対応。旧データ(単一の r.tag 文字列)との互換のため、
+    // 常にこの関数経由で配列として取得する。
+    const recordTagsOf = (r) => (r && r.tags && r.tags.length ? r.tags : (r && r.tag ? [r.tag] : []));
     const computeAutoStatus = (record, statusList, kinds) => {
       if (!record || !Array.isArray(statusList) || statusList.length === 0) return record;
       const currentStatus = record.status || "";
@@ -617,6 +626,7 @@
       const [statusesShuuri, setStatusesShuuri, statusShuuriLoaded] = useStorageState(STATUS_SHUURI_KEY, DEFAULT_STATUSES_SHUURI);
       const [statusVisibility, setStatusVisibility, hiddenLoaded] = useStorageState(HIDDEN_STATUS_KEY, {});
       const [boardLayout, setBoardLayout, boardLayoutLoaded] = useStorageState(BOARD_LAYOUT_KEY, "row");
+      const [boardScale, setBoardScale, boardScaleLoaded] = useStorageState(BOARD_SCALE_KEY, "100");
       const [boardRouteFilter, setBoardRouteFilter] = useState("修理・点検");
       const [tableColumnOrder, setTableColumnOrder, tableColLoaded] = useStorageState(TABLE_COL_KEY, DEFAULT_COLUMN_ORDER);
       const [tableHiddenColumns, setTableHiddenColumns, tableHiddenLoaded] = useStorageState(TABLE_HIDDEN_COL_KEY, []);
@@ -717,7 +727,7 @@
         });
       };
 
-      const ready = recLoaded && codeLoaded && dealerGroupLoaded && kindsLoaded && tagLoaded && customerOptLoaded && contactOptLoaded && chargeOptLoaded && modelOptLoaded && customColorsLoaded && statusKouseiLoaded && statusShuuriLoaded && hiddenLoaded && boardLayoutLoaded && tableColLoaded && tableHiddenLoaded && tableWidthLoaded && gasUrlLoaded && themeLoaded && customTableViewsLoaded && baseSortLoaded && baseFiltersLoaded;
+      const ready = recLoaded && codeLoaded && dealerGroupLoaded && kindsLoaded && tagLoaded && customerOptLoaded && contactOptLoaded && chargeOptLoaded && modelOptLoaded && customColorsLoaded && statusKouseiLoaded && statusShuuriLoaded && hiddenLoaded && boardLayoutLoaded && boardScaleLoaded && tableColLoaded && tableHiddenLoaded && tableWidthLoaded && gasUrlLoaded && themeLoaded && customTableViewsLoaded && baseSortLoaded && baseFiltersLoaded;
 
       // 起動時に、(1)壊れた時刻欄(クラウド連携由来の不正なISO文字列など)をクリーンアップし、
       // (2)期日を過ぎた予定のステータスを自動で前進させる(手動編集を伴わないため、この処理自体は履歴に積まない)
@@ -809,7 +819,7 @@
         if (q) {
           list = list.filter(r => {
             const dealer = dealerFor(r.code, dealerGroups);
-            const hay = [r.subject, r.kind, r.code, r.tag, dealer?.name, dealer?.customerName, r.note, r.customer, r.contactName, r.personInCharge, r.model, r.content]
+            const hay = [r.subject, r.kind, r.code, ...recordTagsOf(r), dealer?.name, dealer?.customerName, r.note, r.customer, r.contactName, r.personInCharge, r.model, r.content]
               .filter(Boolean).join(" ").toLowerCase();
             return hay.includes(q);
           });
@@ -1234,6 +1244,69 @@
       const removeModelOption = (opt) => setModelOptions(prev => prev.filter(o => o !== opt));
       const reorderTags = reorderOptionList(setTags, tags);
       const reorderKindList = reorderOptionList(setKinds, kinds);
+
+      // 得意先・営業担当・担当者・型式・NSS・メーカーなど、選択肢一覧のラベル名を編集する汎用ヘルパー。
+      // 選択肢一覧自体の名称を書き換えると共に、既存の全案件データ内の値・色設定も新しい名称へ引き継ぐ。
+      // 成功時は書き換え後の名称(trim済み)を返し、失敗(空文字・重複)時は null を返す。
+      const renameOptionValue = (setter, list, recordField, oldName, newName, isArrayField) => {
+        const trimmed = (newName || "").trim();
+        if (!trimmed || trimmed === oldName) return null;
+        if (list.includes(trimmed)) {
+          alert(`「${trimmed}」は既に存在します`);
+          return null;
+        }
+        pushUndo();
+        setter(prev => prev.map(o => (o === oldName ? trimmed : o)));
+        const nextRecords = records.map(r => {
+          if (isArrayField) {
+            const arr = r[recordField];
+            if (!Array.isArray(arr) || !arr.includes(oldName)) return r;
+            return {
+              ...r,
+              [recordField]: arr.map(v => (v === oldName ? trimmed : v)),
+              ...(r.tag === oldName ? { tag: trimmed } : {}),
+            };
+          }
+          return r[recordField] === oldName ? { ...r, [recordField]: trimmed } : r;
+        });
+        setRecords(nextRecords);
+        autoSyncToCloud(nextRecords);
+        if (oldName in customColors) {
+          setCustomColors(prev => {
+            if (!(oldName in prev)) return prev;
+            const next = { ...prev };
+            next[trimmed] = next[oldName];
+            delete next[oldName];
+            return next;
+          });
+        }
+        return trimmed;
+      };
+      const renameCustomerOption = (oldName, newName) => renameOptionValue(setCustomerOptions, customerOptions, "customer", oldName, newName, false);
+      const renameContactOption = (oldName, newName) => renameOptionValue(setContactOptions, contactOptions, "contactName", oldName, newName, false);
+      const renameChargeOption = (oldName, newName) => renameOptionValue(setChargeOptions, chargeOptions, "personInCharge", oldName, newName, false);
+      const renameModelOption = (oldName, newName) => renameOptionValue(setModelOptions, modelOptions, "model", oldName, newName, false);
+      const renameTag = (oldName, newName) => renameOptionValue(setTags, tags, "tags", oldName, newName, true);
+
+      // 種別編集(KindAdmin)の保存時に、名称変更があれば既存案件の r.kind にも反映する
+      const saveKinds = (nextKinds) => {
+        pushUndo();
+        const renames = [];
+        nextKinds.forEach(nk => {
+          const old = kinds.find(k => k.id === nk.id);
+          if (old && old.name !== nk.name) renames.push([old.name, nk.name]);
+        });
+        let nextRecords = records;
+        if (renames.length > 0) {
+          nextRecords = records.map(r => {
+            const hit = renames.find(([o]) => o === r.kind);
+            return hit ? { ...r, kind: hit[1] } : r;
+          });
+          setRecords(nextRecords);
+        }
+        setKinds(nextKinds);
+        if (renames.length > 0) autoSyncToCloud(nextRecords);
+      };
       const toggleColumnHidden = (key) => {
         if (activeTableViewId === "base") {
           setTableHiddenColumns(
@@ -1415,7 +1488,7 @@
             const dt = fmtDT(startDate, startTime);
             const dtEnd = endDate && endDate !== startDate ? fmtDT(endDate, startTime) : dt;
             return {
-              "件名": (r.subject || "") + (r.tag ? `_${r.tag}` : ""),
+              "件名": (r.subject || "") + (recordTagsOf(r).length ? `_${recordTagsOf(r).join("_")}` : ""),
               "開始日時": dt,
               "終了日時": dtEnd,
               "場所": "",
@@ -1494,7 +1567,7 @@
             lines.push(`DTSTART;VALUE=DATE:${y}${mo}${da}`);
             lines.push(`DTEND;VALUE=DATE:${endStr}`);
           }
-          const summaryText = (r.subject || "（無題）") + (r.tag ? `_${r.tag}` : "");
+          const summaryText = (r.subject || "（無題）") + (recordTagsOf(r).length ? `_${recordTagsOf(r).join("_")}` : "");
           lines.push(foldIcsLine(`SUMMARY:${escapeIcsText(summaryText)}`));
           if (r.content) lines.push(foldIcsLine(`DESCRIPTION:${escapeIcsText(r.content)}`));
           lines.push("END:VEVENT");
@@ -1691,7 +1764,10 @@
           <header style={styles.header}>
             <div>
               <div style={styles.eyebrow}>受付台帳</div>
-              <h1 style={styles.title}>校正・修理対応スケジュール</h1>
+              <h1 style={styles.title}>
+                校正・修理対応スケジュール
+                <span style={styles.versionBadge}>v{APP_VERSION}</span>
+              </h1>
             </div>
             <div style={styles.headerActions}>
               <div style={styles.viewToggle}>
@@ -1814,6 +1890,20 @@
                     onClick={() => setBoardLayout("grid")}
                   >グリッド</button>
                 </div>
+                <div style={styles.viewToggle} title="ボード全体の表示サイズ（情報はそのままに、縮小して一度に見える件数を増やせます）">
+                  <button
+                    style={{ ...styles.viewBtn, ...(boardScale === "100" ? styles.viewBtnActive : {}) }}
+                    onClick={() => setBoardScale("100")}
+                  >標準</button>
+                  <button
+                    style={{ ...styles.viewBtn, ...(boardScale === "90" ? styles.viewBtnActive : {}) }}
+                    onClick={() => setBoardScale("90")}
+                  >小さめ</button>
+                  <button
+                    style={{ ...styles.viewBtn, ...(boardScale === "80" ? styles.viewBtnActive : {}) }}
+                    onClick={() => setBoardScale("80")}
+                  >コンパクト</button>
+                </div>
                 <button style={styles.ghostBtn} onClick={() => setShowStatusAdmin(true)}>
                   <Columns size={14} /> ステータス列を編集
                 </button>
@@ -1896,6 +1986,11 @@
               onRemoveContactOption={removeContactOption}
               onRemoveChargeOption={removeChargeOption}
               onRemoveModelOption={removeModelOption}
+              onRenameCustomerOption={renameCustomerOption}
+              onRenameContactOption={renameContactOption}
+              onRenameChargeOption={renameChargeOption}
+              onRenameModelOption={renameModelOption}
+              onRenameTag={renameTag}
             />
           )}
           {view === "board" && (
@@ -1911,6 +2006,7 @@
               statuses={activeBoardStatuses}
               statusVisibility={statusVisibility}
               layout={boardLayout}
+              scale={boardScale}
               onEdit={(r) => { setEditing(r); setShowForm(true); }}
               onDelete={deleteRecord}
               onOpenEquip={(r) => setShowEquip(r)}
@@ -1942,6 +2038,7 @@
             >
               {footerCollapsed ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
               クラウド連携・管理メニュー
+              <span style={{ ...styles.versionBadge, marginLeft: 8 }}>v{APP_VERSION}</span>
               {syncError && (
                 <span style={{ marginLeft: 6, fontSize: 11, color: "var(--clrc9573f)", fontWeight: 600 }}>
                   ⚠ 同期エラー
@@ -1967,7 +2064,7 @@
               <Download size={14} /> 顧客コード表CSV出力
             </button>
             <button style={styles.ghostBtn} onClick={() => setShowTagAdmin(true)}>
-              <Tag size={14} /> NSS編集 ({tags.length}件)
+              <Tag size={14} /> NSS・メーカー編集 ({tags.length}件)
             </button>
             <button style={styles.ghostBtn} onClick={() => setShowDealerGroupAdmin(true)}>
               <Tag size={14} /> 得意先グループ編集 ({dealerGroups.length}件)
@@ -2032,6 +2129,11 @@
               onRemoveContactOption={removeContactOption}
               onRemoveChargeOption={removeChargeOption}
               onRemoveModelOption={removeModelOption}
+              onRenameCustomerOption={renameCustomerOption}
+              onRenameContactOption={renameContactOption}
+              onRenameChargeOption={renameChargeOption}
+              onRenameModelOption={renameModelOption}
+              onRenameTag={renameTag}
             />
           )}
 
@@ -2044,6 +2146,7 @@
               onReorderCustomerOptions={reorderCustomerOptions}
               onReorderKinds={reorderKindList}
               onRemoveCustomerOption={removeCustomerOption}
+              onRenameCustomerOption={renameCustomerOption}
               onSave={(payload) => { saveRecord(payload); setShowQuickAdd(false); }}
               onCancel={() => setShowQuickAdd(false)}
             />
@@ -2071,6 +2174,7 @@
               tags={tags}
               onAdd={addTag}
               onRemove={removeTag}
+              onRename={renameTag}
               onClose={() => setShowTagAdmin(false)}
               getColor={getColor}
             />
@@ -2087,7 +2191,7 @@
           {showKindAdmin && (
             <KindAdmin
               kinds={kinds}
-              onSave={setKinds}
+              onSave={saveKinds}
               onClose={() => setShowKindAdmin(false)}
             />
           )}
@@ -2532,22 +2636,38 @@
       );
     }
 
-    function SelectCellPopover({ value, rect, options, colorFn, onSetColor, allowCreate, onSelect, onClose, onReorder, onRemoveOption }) {
+    function SelectCellPopover({ multi, value, rect, options, colorFn, onSetColor, allowCreate, onSelect, onToggle, onClose, onReorder, onRemoveOption, onRenameOption }) {
       const [query, setQuery] = useState("");
       const [paletteFor, setPaletteFor] = useState(null);
+      const [renamingFor, setRenamingFor] = useState(null);
+      const [renamingText, setRenamingText] = useState("");
       const [dragIdx, setDragIdx] = useState(null);
       const [overIdx, setOverIdx] = useState(null);
       const inputRef = useRef(null);
       useEffect(() => { inputRef.current?.focus(); }, []);
+
+      const startRename = (opt) => { setRenamingFor(opt); setRenamingText(opt); };
+      const commitRename = () => {
+        if (renamingFor !== null) onRenameOption(renamingFor, renamingText);
+        setRenamingFor(null);
+      };
+
+      const selectedValues = multi ? (value || []) : [];
+      const selectedSet = new Set(selectedValues);
 
       const filtered = options.filter(o => o.toLowerCase().includes(query.trim().toLowerCase()));
       const exactMatch = options.some(o => o.toLowerCase() === query.trim().toLowerCase());
       // 検索中は表示順と実データの並びがズレるため、並び替えは「未検索・全件表示」の時だけ有効にする
       const canReorder = !!onReorder && query.trim() === "" && filtered.length === options.length;
 
-      const pick = (opt) => { onSelect(opt); onClose(); };
+      const pick = (opt) => {
+        if (multi) { onToggle(opt); return; } // 複数選択時はポップオーバーを開いたままにする
+        onSelect(opt);
+        onClose();
+      };
       const create = () => {
         if (!query.trim()) return;
+        if (multi) { onToggle(query.trim()); setQuery(""); return; }
         onSelect(query.trim());
         onClose();
       };
@@ -2556,10 +2676,20 @@
         <React.Fragment>
           <div style={styles.cellPopoverBackdrop} onClick={onClose} />
           <div style={{ ...styles.cellPopover, ...popoverStyleFor(rect, 260, 320) }} onClick={e => e.stopPropagation()}>
-            {value && (
+            {!multi && value && (
               <div style={styles.cellPopoverCurrent}>
                 <span style={{ ...styles.pill, background: colorFn(value) }}>{value}</span>
                 <button style={styles.searchClear} onClick={() => { onSelect(""); onClose(); }}><X size={12} /></button>
+              </div>
+            )}
+            {multi && selectedValues.length > 0 && (
+              <div style={{ ...styles.cellPopoverCurrent, flexWrap: "wrap" }}>
+                {selectedValues.map(v => (
+                  <span key={v} style={{ ...styles.pill, background: colorFn(v), display: "inline-flex", alignItems: "center", gap: 3 }}>
+                    {v}
+                    <X size={10} style={{ cursor: "pointer" }} onClick={(e) => { e.stopPropagation(); onToggle(v); }} />
+                  </span>
+                ))}
               </div>
             )}
             <input
@@ -2590,9 +2720,40 @@
                       <GripVertical size={13} />
                     </span>
                   )}
-                  <div style={{ flex: 1, cursor: "pointer" }} onClick={() => pick(opt)}>
-                    <span style={{ ...styles.pill, background: colorFn(opt, i) }}>{opt}</span>
-                  </div>
+                  {renamingFor === opt ? (
+                    <input
+                      style={{ ...styles.cellPopoverInput, flex: 1, margin: 0 }}
+                      value={renamingText}
+                      autoFocus
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={e => setRenamingText(e.target.value)}
+                      onBlur={commitRename}
+                      onKeyDown={e => { if (e.key === "Enter") commitRename(); if (e.key === "Escape") setRenamingFor(null); }}
+                    />
+                  ) : (
+                    <div style={{ flex: 1, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }} onClick={() => pick(opt)}>
+                      {multi && (
+                        <span style={{
+                          width: 14, height: 14, borderRadius: 3, flexShrink: 0,
+                          border: "1px solid var(--clr948d7c)",
+                          background: selectedSet.has(opt) ? "var(--clrc68a3d)" : "transparent",
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                        }}>
+                          {selectedSet.has(opt) && <Check size={10} color="#fff" />}
+                        </span>
+                      )}
+                      <span style={{ ...styles.pill, background: colorFn(opt, i) }}>{opt}</span>
+                    </div>
+                  )}
+                  {onRenameOption && (
+                    <button
+                      style={styles.paletteTriggerBtn}
+                      onClick={(e) => { e.stopPropagation(); startRename(opt); }}
+                      title="名前を編集"
+                    >
+                      <Pencil size={12} color="var(--clr948d7c)" />
+                    </button>
+                  )}
                   {onSetColor && (
                     <button
                       style={styles.paletteTriggerBtn}
@@ -2640,7 +2801,7 @@
       );
     }
 
-    function NotionPropertySelect({ value, options, colorFn, onSetColor, allowCreate, onSelect, onReorder, onRemoveOption }) {
+    function NotionPropertySelect({ value, options, colorFn, onSetColor, allowCreate, onSelect, onReorder, onRemoveOption, onRenameOption }) {
       const [open, setOpen] = useState(false);
       const [anchor, setAnchor] = useState(null);
 
@@ -2669,6 +2830,48 @@
               onSelect={onSelect}
               onReorder={onReorder}
               onRemoveOption={onRemoveOption}
+              onRenameOption={onRenameOption}
+              onClose={() => setOpen(false)}
+            />
+          )}
+        </div>
+      );
+    }
+
+    function NotionPropertyMultiSelect({ values, options, colorFn, onSetColor, allowCreate, onToggle, onReorder, onRemoveOption, onRenameOption }) {
+      const [open, setOpen] = useState(false);
+      const [anchor, setAnchor] = useState(null);
+      const list = values || [];
+
+      const handleClick = (e) => {
+        setAnchor(e.currentTarget.getBoundingClientRect());
+        setOpen(true);
+      };
+
+      return (
+        <div>
+          <div className="prop-select-btn" style={{ flexWrap: "wrap", gap: 4 }} onClick={handleClick}>
+            {list.length > 0 ? (
+              list.map(v => (
+                <span key={v} style={{ ...styles.pill, background: colorFn(v) }}>{v}</span>
+              ))
+            ) : (
+              <span className="prop-unselected">未入力</span>
+            )}
+          </div>
+          {open && (
+            <SelectCellPopover
+              multi
+              value={list}
+              rect={anchor}
+              options={options}
+              colorFn={colorFn}
+              onSetColor={onSetColor}
+              allowCreate={allowCreate}
+              onToggle={onToggle}
+              onReorder={onReorder}
+              onRemoveOption={onRemoveOption}
+              onRenameOption={onRenameOption}
               onClose={() => setOpen(false)}
             />
           )}
@@ -2688,7 +2891,7 @@
       receivedDate: { label: "受付日時", editable: "datetime", dateField: "receivedDate", timeField: "receivedTime" },
       visitDate: { label: "対応日程(訪問)", editable: "datetime", dateField: "visitDate", timeField: "visitTime", endDateField: "visitEndDate" },
       workDate: { label: "作業日程(修理)", editable: "datetime", dateField: "workDate", timeField: "workTime", endDateField: "workEndDate" },
-      tag: { label: "NSS", editable: "select-tag" },
+      tag: { label: "NSS・メーカー", editable: "select-tag" },
       code: { label: "コード", editable: null },
       precheckDate: { label: "事前点検日時", editable: "datetime", dateField: "precheckDate", timeField: "precheckTime", endDateField: "precheckEndDate" },
       honkouseiDate: { label: "本校正日時", editable: "datetime", dateField: "honkouseiDate", timeField: "honkouseiTime", endDateField: "honkouseiEndDate" },
@@ -2702,6 +2905,7 @@
       onEdit, onDelete, onOpenEquip, onUpdateField, onUpdateDateTime, getStatusesForKind, getColor, onSetOptionColor,
       onReorderCustomerOptions, onReorderContactOptions, onReorderChargeOptions, onReorderModelOptions, onReorderTags, onReorderKinds,
       onRemoveCustomerOption, onRemoveContactOption, onRemoveChargeOption, onRemoveModelOption,
+      onRenameCustomerOption, onRenameContactOption, onRenameChargeOption, onRenameModelOption, onRenameTag,
       onUploadAttachment, onSaveAttachments,
     }) {
       const [activeCell, setActiveCell] = useState(null);
@@ -2793,7 +2997,7 @@
           case "receivedDate": return r.receivedDate ? `${fmtJP(r.receivedDate, r.receivedTime)}` : "";
           case "visitDate": return r.visitDate ? fmtJPRange(r.visitDate, r.visitTime, r.visitEndDate) : "";
           case "workDate": return r.workDate ? fmtJPRange(r.workDate, r.workTime, r.workEndDate) : "";
-          case "tag": return r.tag || "";
+          case "tag": return recordTagsOf(r).join(", ");
           case "code": {
             const dealer = r.code ? dealerFor(r.code, dealerGroups) : null;
             return r.code ? `${r.code}${dealer ? " " + dealer.name : ""}` : "";
@@ -2896,10 +3100,18 @@
             return r.visitDate ? fmtJPRange(r.visitDate, r.visitTime, r.visitEndDate) : <span className="ledger-empty-plus">＋</span>;
           case "workDate":
             return r.workDate ? fmtJPRange(r.workDate, r.workTime, r.workEndDate) : <span className="ledger-empty-plus">＋</span>;
-          case "tag":
-            return r.tag
-              ? <span style={{ ...styles.pill, background: getColor(r.tag, tags.indexOf(r.tag)) }}>{r.tag}</span>
+          case "tag": {
+            const rTags = recordTagsOf(r);
+            return rTags.length
+              ? (
+                <span style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
+                  {rTags.map(t => (
+                    <span key={t} style={{ ...styles.pill, background: getColor(t, tags.indexOf(t)) }}>{t}</span>
+                  ))}
+                </span>
+              )
               : <span className="ledger-empty-plus">＋</span>;
+          }
           case "code":
             return (
               <span
@@ -3113,6 +3325,7 @@
               onSelect={(v) => onUpdateField(activeRecord.id, "contactName", v)}
               onReorder={onReorderContactOptions}
               onRemoveOption={onRemoveContactOption}
+              onRenameOption={onRenameContactOption}
               onClose={() => setActiveCell(null)}
             />
           )}
@@ -3127,6 +3340,7 @@
               onSelect={(v) => onUpdateField(activeRecord.id, "personInCharge", v)}
               onReorder={onReorderChargeOptions}
               onRemoveOption={onRemoveChargeOption}
+              onRenameOption={onRenameChargeOption}
               onClose={() => setActiveCell(null)}
             />
           )}
@@ -3141,6 +3355,7 @@
               onSelect={(v) => onUpdateField(activeRecord.id, "model", v)}
               onReorder={onReorderModelOptions}
               onRemoveOption={onRemoveModelOption}
+              onRenameOption={onRenameModelOption}
               onClose={() => setActiveCell(null)}
             />
           )}
@@ -3191,19 +3406,26 @@
               onSelect={(v) => onUpdateField(activeRecord.id, "customer", v)}
               onReorder={onReorderCustomerOptions}
               onRemoveOption={onRemoveCustomerOption}
+              onRenameOption={onRenameCustomerOption}
               onClose={() => setActiveCell(null)}
             />
           )}
           {activeCell && activeRecord && activeCell.field === "tag" && (
             <SelectCellPopover
-              value={activeRecord.tag}
+              multi
+              value={recordTagsOf(activeRecord)}
               rect={activeCell.rect}
               options={tags}
               colorFn={(v, i) => getColor(v, i >= 0 ? i : tags.indexOf(v))}
               onSetColor={onSetOptionColor}
               allowCreate={false}
-              onSelect={(v) => onUpdateField(activeRecord.id, "tag", v)}
+              onToggle={(v) => {
+                const current = recordTagsOf(activeRecord);
+                const next = current.includes(v) ? current.filter(x => x !== v) : [...current, v];
+                onUpdateField(activeRecord.id, "tags", next);
+              }}
               onReorder={onReorderTags}
+              onRenameOption={onRenameTag}
               onClose={() => setActiveCell(null)}
             />
           )}
@@ -3276,9 +3498,13 @@
     // ================= Quick Add Form (クイック登録: 運転中・作業中でもサッと打てる最小構成) =================
     // 拠点名(件名)・得意先・種別・内容の4項目だけに絞った軽量な新規登録フォーム。
     // それ以外の項目(日程・型式・担当者など)は空のまま保存し、後で通常の編集画面から追記する想定。
-    function QuickAddForm({ customerOptions, kinds, getColor, onSave, onCancel, onReorderCustomerOptions, onReorderKinds, onSetOptionColor, onRemoveCustomerOption }) {
+    function QuickAddForm({ customerOptions, kinds, getColor, onSave, onCancel, onReorderCustomerOptions, onReorderKinds, onSetOptionColor, onRemoveCustomerOption, onRenameCustomerOption }) {
       const [subject, setSubject] = useState("");
       const [customer, setCustomer] = useState("");
+      const handleRenameCustomer = (oldV, newV) => {
+        const applied = onRenameCustomerOption(oldV, newV);
+        if (applied && customer === oldV) setCustomer(applied);
+      };
       const [kind, setKind] = useState("");
       const [content, setContent] = useState("");
       const inputRef = useRef(null);
@@ -3338,6 +3564,7 @@
                   onSelect={setCustomer}
                   onReorder={onReorderCustomerOptions}
                   onRemoveOption={onRemoveCustomerOption}
+                  onRenameOption={handleRenameCustomer}
                 />
               </div>
 
@@ -3800,12 +4027,15 @@
                         </div>
                         {items.length > 0 && (
                           <div style={styles.calDotsRow}>
-                            {items.slice(0, 4).map(({ r, phase }) => (
-                              <span
-                                key={r.id + ":" + phase}
-                                style={{ ...styles.calDot, background: r.tag ? getColor(r.tag, tags.indexOf(r.tag)) : "var(--clr5a5548)" }}
-                              />
-                            ))}
+                            {items.slice(0, 4).map(({ r, phase }) => {
+                              const firstTag = recordTagsOf(r)[0];
+                              return (
+                                <span
+                                  key={r.id + ":" + phase}
+                                  style={{ ...styles.calDot, background: firstTag ? getColor(firstTag, tags.indexOf(firstTag)) : "var(--clr5a5548)" }}
+                                />
+                              );
+                            })}
                           </div>
                         )}
                       </>
@@ -3826,10 +4056,12 @@
                           const t = phase === "precheck" ? (r.precheckTime || r.visitTime) : (r.honkouseiTime || r.workTime);
                           const endD = phase === "precheck" ? (r.precheckDate ? r.precheckEndDate : r.visitEndDate) : (r.honkouseiDate ? r.honkouseiEndDate : r.workEndDate);
                           const startD = phase === "precheck" ? (r.precheckDate || r.visitDate) : (r.honkouseiDate || r.workDate);
+                          const rTags = recordTagsOf(r);
+                          const firstTag = rTags[0];
                           return (
                             <div
                               key={r.id + ":" + phase}
-                              style={{ ...styles.calItem, borderLeftColor: r.tag ? getColor(r.tag, tags.indexOf(r.tag)) : "var(--clr5a5548)" }}
+                              style={{ ...styles.calItem, borderLeftColor: firstTag ? getColor(firstTag, tags.indexOf(firstTag)) : "var(--clr5a5548)" }}
                               onClick={() => onEdit(r)}
                               title={r.subject}
                             >
@@ -3843,15 +4075,15 @@
                               {endD && endD !== startD && (
                                 <span style={{ ...styles.calItemTime, marginLeft: 3 }}>〜{Number(endD.slice(5, 7))}/{Number(endD.slice(8, 10))}</span>
                               )}
-                              {r.tag && (
-                                <span style={{
+                              {rTags.map(t2 => (
+                                <span key={t2} style={{
                                   marginLeft: 4, fontSize: 9, padding: "0 4px", borderRadius: 3,
-                                  background: getColor(r.tag, tags.indexOf(r.tag)), color: "var(--clrf4efe3)",
+                                  background: getColor(t2, tags.indexOf(t2)), color: "var(--clrf4efe3)",
                                   whiteSpace: "nowrap", fontWeight: 600,
                                 }}>
-                                  {r.tag}
+                                  {t2}
                                 </span>
-                              )}
+                              ))}
                             </div>
                           );
                         })}
@@ -3876,10 +4108,12 @@
                     const t = phase === "precheck" ? (r.precheckTime || r.visitTime) : (r.honkouseiTime || r.workTime);
                     const endD = phase === "precheck" ? (r.precheckDate ? r.precheckEndDate : r.visitEndDate) : (r.honkouseiDate ? r.honkouseiEndDate : r.workEndDate);
                     const startD = phase === "precheck" ? (r.precheckDate || r.visitDate) : (r.honkouseiDate || r.workDate);
+                    const rTags = recordTagsOf(r);
+                    const firstTag = rTags[0];
                     return (
                       <div
                         key={r.id + ":" + phase}
-                        style={{ ...styles.calAgendaItem, borderLeftColor: r.tag ? getColor(r.tag, tags.indexOf(r.tag)) : "var(--clr5a5548)" }}
+                        style={{ ...styles.calAgendaItem, borderLeftColor: firstTag ? getColor(firstTag, tags.indexOf(firstTag)) : "var(--clr5a5548)" }}
                         onClick={() => onEdit(r)}
                       >
                         <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
@@ -3893,14 +4127,14 @@
                           {endD && endD !== startD && (
                             <span style={styles.calItemTime}>〜{Number(endD.slice(5, 7))}/{Number(endD.slice(8, 10))}</span>
                           )}
-                          {r.tag && (
-                            <span style={{
+                          {rTags.map(t2 => (
+                            <span key={t2} style={{
                               fontSize: 10, padding: "1px 6px", borderRadius: 4,
-                              background: getColor(r.tag, tags.indexOf(r.tag)), color: "var(--clrf4efe3)", fontWeight: 600,
+                              background: getColor(t2, tags.indexOf(t2)), color: "var(--clrf4efe3)", fontWeight: 600,
                             }}>
-                              {r.tag}
+                              {t2}
                             </span>
-                          )}
+                          ))}
                         </div>
                         {r.customer && <div style={{ fontSize: 11.5, color: "var(--clr8f8a7c)", marginTop: 2 }}>{r.customer}</div>}
                       </div>
@@ -3916,7 +4150,7 @@
 
     // ================= Board View =================
 
-    function BoardView({ records, codes, tags, statuses, statusVisibility, layout, onEdit, onDelete, onOpenEquip, onMoveStatus, onReorderStatuses, onExpandStatus, getColor }) {
+    function BoardView({ records, codes, tags, statuses, statusVisibility, layout, scale, onEdit, onDelete, onOpenEquip, onMoveStatus, onReorderStatuses, onExpandStatus, getColor }) {
       const [dragCardId, setDragCardId] = useState(null);
       const [dragStatus, setDragStatus] = useState(null);
       const [overStatus, setOverStatus] = useState(null);
@@ -3977,14 +4211,30 @@
         ? { ...styles.boardScroll, flexWrap: "wrap", overflowX: "visible" }
         : styles.boardScroll;
 
+      // 表示サイズ(100/90/80)に応じて、列幅・余白・文字サイズを比率で縮小する。
+      // 情報量は変えず(ステータス・種別・得意先・内容プレビューは常に表示)、
+      // 画面内によりたくさんの列・カードが収まるようにするための倍率。
+      const scaleFactor = (Number(scale) || 100) / 100;
+      const f = (base, min) => Math.max(min ?? Math.round(base * 0.7), Math.round(base * scaleFactor));
+      const boardColDynamic = { width: f(260, 190), flex: `0 0 ${f(260, 190)}px`, maxHeight: "80vh" };
+      const boardColHeadDynamic = { padding: `${f(10, 6)}px ${f(12, 8)}px` };
+      const boardColTitleDynamic = { fontSize: f(12.5, 10.5) };
+      const boardColCountDynamic = { fontSize: f(11, 9.5), padding: `${f(1, 1)}px ${f(7, 5)}px` };
+      const boardColBodyDynamic = { padding: f(10, 6), gap: f(8, 4) };
+      const boardCardDynamic = { padding: `${f(10, 6)}px ${f(11, 7)}px` };
+      const boardCardTitleDynamic = { fontSize: f(12.5, 10.5), marginBottom: f(3, 2) };
+      const pillDynamic = { fontSize: f(10, 9) };
+      const boardCardContentDynamic = { fontSize: f(11.5, 10) };
+      const scrollGapDynamic = { gap: f(12, 8) };
+
       return (
         <div style={styles.boardOuterRow}>
           <div style={styles.boardWrap}>
-            <div style={scrollStyle}>
+            <div style={{ ...scrollStyle, ...scrollGapDynamic }}>
               {fullStatuses.map((status) => (
                 <div
                   key={status}
-                  style={{ ...styles.boardCol, ...(overStatus === status ? styles.boardColDragOver : {}) }}
+                  style={{ ...styles.boardCol, ...boardColDynamic, ...(overStatus === status ? styles.boardColDragOver : {}) }}
                   onDragOver={(e) => { e.preventDefault(); if (dragStatus !== null) setOverStatus(status); }}
                   onDragLeave={() => setOverStatus(o => (o === status ? null : o))}
                   onDrop={(e) => { if (dragStatus !== null) onColHeaderDrop(status); else onColumnDrop(e, status); setOverStatus(null); }}
@@ -3992,6 +4242,7 @@
                   <div
                     style={{
                       ...styles.boardColHead,
+                      ...boardColHeadDynamic,
                       background: getColor(status, statuses.indexOf(status)),
                       borderBottom: "none",
                       borderTopLeftRadius: 9, borderTopRightRadius: 9,
@@ -4002,33 +4253,33 @@
                     title="ドラッグして列を並び替え"
                   >
                     <GripVertical size={13} color={readableTextOn(getColor(status, statuses.indexOf(status)))} />
-                    <span style={{ ...styles.boardColTitle, color: readableTextOn(getColor(status, statuses.indexOf(status))) }}>
+                    <span style={{ ...styles.boardColTitle, ...boardColTitleDynamic, color: readableTextOn(getColor(status, statuses.indexOf(status))) }}>
                       {status}
                     </span>
-                    <span style={{ ...styles.boardColCount, background: "rgba(0,0,0,0.18)", color: readableTextOn(getColor(status, statuses.indexOf(status))) }}>{byStatus.map[status]?.length || 0}</span>
+                    <span style={{ ...styles.boardColCount, ...boardColCountDynamic, background: "rgba(0,0,0,0.18)", color: readableTextOn(getColor(status, statuses.indexOf(status))) }}>{byStatus.map[status]?.length || 0}</span>
                   </div>
-                  <div style={styles.boardColBody}>
+                  <div style={{ ...styles.boardColBody, ...boardColBodyDynamic }}>
                     {(byStatus.map[status] || []).map(r => (
                       <div key={r.id} className="board-card-container">
                         <div
-                          style={{ ...styles.boardCard, ...(dragCardId === r.id ? styles.boardCardDragging : {}) }}
+                          style={{ ...styles.boardCard, ...boardCardDynamic, ...(dragCardId === r.id ? styles.boardCardDragging : {}) }}
                           draggable
                           onDragStart={(e) => onCardDragStart(e, r.id)}
                           onDragEnd={() => setDragCardId(null)}
                           onClick={() => onEdit(r)}
                         >
-                          <div style={styles.boardCardTitle}>
+                          <div style={{ ...styles.boardCardTitle, ...boardCardTitleDynamic }}>
                             {r.subject || "（無題）"}
                             {isUnorganized(r) && <span style={styles.unorganizedBadge}>未整理</span>}
                           </div>
                           <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 4 }}>
-                            {r.kind && <span style={{ ...styles.pill, background: getColor(r.kind, 0), fontSize: 10, padding: "1px 5px" }}>{r.kind}</span>}
-                            {r.customer && <span style={{ ...styles.pill, background: getColor(r.customer, 0), fontSize: 10, padding: "1px 5px" }}>{r.customer}</span>}
+                            {r.kind && <span style={{ ...styles.pill, ...pillDynamic, background: getColor(r.kind, 0), padding: "1px 5px" }}>{r.kind}</span>}
+                            {r.customer && <span style={{ ...styles.pill, ...pillDynamic, background: getColor(r.customer, 0), padding: "1px 5px" }}>{r.customer}</span>}
                           </div>
                           {r.content ? (
-                            <div style={styles.boardCardContent}>{r.content}</div>
+                            <div style={{ ...styles.boardCardContent, ...boardCardContentDynamic }}>{r.content}</div>
                           ) : (
-                            <div style={{ fontSize: 11, color: "var(--clr605a49)" }}>内容未記入</div>
+                            <div style={{ fontSize: f(11, 9.5), color: "var(--clr605a49)" }}>内容未記入</div>
                           )}
                         </div>
                       </div>
@@ -4043,9 +4294,9 @@
                 <div style={styles.boardColTitle}>ステータス未設定 ({byStatus.unassigned.length}件)</div>
                 <div style={styles.boardUnassignedList}>
                   {byStatus.unassigned.map(r => (
-                    <div key={r.id} style={styles.boardCard} onClick={() => onEdit(r)}>
-                      <div style={styles.boardCardTitle}>{r.subject || "（無題）"}</div>
-                      {r.customer && <span style={{ ...styles.pill, background: getColor(r.customer, 0), fontSize: 10, padding: "1px 5px" }}>{r.customer}</span>}
+                    <div key={r.id} style={{ ...styles.boardCard, ...boardCardDynamic }} onClick={() => onEdit(r)}>
+                      <div style={{ ...styles.boardCardTitle, ...boardCardTitleDynamic }}>{r.subject || "（無題）"}</div>
+                      {r.customer && <span style={{ ...styles.pill, ...pillDynamic, background: getColor(r.customer, 0), padding: "1px 5px" }}>{r.customer}</span>}
                     </div>
                   ))}
                 </div>
@@ -4184,7 +4435,7 @@
     }
 
     // ================= Compact Notion-Style Record Form with Smart Date Visibility =================
-    function RecordForm({ initial, codes, dealerGroups, kinds, tags, getStatusesForKind, customerOptions, contactOptions, chargeOptions, modelOptions, onCancel, onSave, onDelete, onOpenEquip, getColor, onSetOptionColor, onReorderCustomerOptions, onReorderContactOptions, onReorderChargeOptions, onReorderModelOptions, onReorderTags, onReorderKinds, onReorderStatuses, onUploadAttachment, onSaveAttachments, onUpdateField, onRemoveCustomerOption, onRemoveContactOption, onRemoveChargeOption, onRemoveModelOption }) {
+    function RecordForm({ initial, codes, dealerGroups, kinds, tags, getStatusesForKind, customerOptions, contactOptions, chargeOptions, modelOptions, onCancel, onSave, onDelete, onOpenEquip, getColor, onSetOptionColor, onReorderCustomerOptions, onReorderContactOptions, onReorderChargeOptions, onReorderModelOptions, onReorderTags, onReorderKinds, onReorderStatuses, onUploadAttachment, onSaveAttachments, onUpdateField, onRemoveCustomerOption, onRemoveContactOption, onRemoveChargeOption, onRemoveModelOption, onRenameCustomerOption, onRenameContactOption, onRenameChargeOption, onRenameModelOption, onRenameTag }) {
       const [subject, setSubject] = useState(initial?.subject || "");
       const [kind, setKind] = useState(initial?.kind || "");
       const [code, setCode] = useState(initial?.code || "");
@@ -4195,7 +4446,30 @@
       const [serialYear, setSerialYear] = useState(initial?.serialYear || "");
       const [content, setContent] = useState(initial?.content || "");
       const [status, setStatus] = useState(initial?.status || getStatusesForKind(initial?.kind || "校正")[0] || "");
-      const [tag, setTag] = useState(initial?.tag || "");
+      const [recordTags, setRecordTags] = useState(recordTagsOf(initial));
+      const toggleRecordTag = (v) => setRecordTags(prev => prev.includes(v) ? prev.filter(x => x !== v) : [...prev, v]);
+
+      // 選択肢の名称を変更した際、現在このフォームで選択中の値も新しい名称に追従させる
+      const handleRenameCustomer = (oldV, newV) => {
+        const applied = onRenameCustomerOption(oldV, newV);
+        if (applied && customer === oldV) setCustomer(applied);
+      };
+      const handleRenameContact = (oldV, newV) => {
+        const applied = onRenameContactOption(oldV, newV);
+        if (applied && contactName === oldV) setContactName(applied);
+      };
+      const handleRenameCharge = (oldV, newV) => {
+        const applied = onRenameChargeOption(oldV, newV);
+        if (applied && personInCharge === oldV) setPersonInCharge(applied);
+      };
+      const handleRenameModel = (oldV, newV) => {
+        const applied = onRenameModelOption(oldV, newV);
+        if (applied && model === oldV) setModel(applied);
+      };
+      const handleRenameTag = (oldV, newV) => {
+        const applied = onRenameTag(oldV, newV);
+        if (applied && recordTags.includes(oldV)) setRecordTags(prev => prev.map(t => (t === oldV ? applied : t)));
+      };
       const [note, setNote] = useState(initial?.note || "");
       const [attachments, setAttachments] = useState(initial?.attachments || []);
       const [uploadingCount, setUploadingCount] = useState(0);
@@ -4337,7 +4611,8 @@
         serialYear,
         content,
         status,
-        tag,
+        tags: recordTags,
+        tag: recordTags[0] || "",
         note,
         receivedDate: toISODate(receivedDate),
         receivedTime,
@@ -4448,16 +4723,17 @@
               </div>
 
               <div className="prop-row">
-                <div className="prop-label"><Tag size={14} /> NSS</div>
+                <div className="prop-label"><Tag size={14} /> NSS・メーカー</div>
                 <div className="prop-value">
-                  <NotionPropertySelect
-                    value={tag}
+                  <NotionPropertyMultiSelect
+                    values={recordTags}
                     options={tags}
                     colorFn={(v, i) => getColor(v, i >= 0 ? i : tags.indexOf(v))}
                     onSetColor={onSetOptionColor}
                     allowCreate={false}
-                    onSelect={setTag}
+                    onToggle={toggleRecordTag}
                     onReorder={onReorderTags}
+                    onRenameOption={handleRenameTag}
                   />
                 </div>
               </div>
@@ -4474,6 +4750,7 @@
                     onSelect={setContactName}
                     onReorder={onReorderContactOptions}
                     onRemoveOption={onRemoveContactOption}
+                    onRenameOption={handleRenameContact}
                   />
                 </div>
               </div>
@@ -4490,6 +4767,7 @@
                     onSelect={setCustomer}
                     onReorder={onReorderCustomerOptions}
                     onRemoveOption={onRemoveCustomerOption}
+                    onRenameOption={handleRenameCustomer}
                   />
                 </div>
               </div>
@@ -4506,6 +4784,7 @@
                     onSelect={setPersonInCharge}
                     onReorder={onReorderChargeOptions}
                     onRemoveOption={onRemoveChargeOption}
+                    onRenameOption={handleRenameCharge}
                   />
                 </div>
               </div>
@@ -4522,6 +4801,7 @@
                     onSelect={setModel}
                     onReorder={onReorderModelOptions}
                     onRemoveOption={onRemoveModelOption}
+                    onRenameOption={handleRenameModel}
                   />
                 </div>
               </div>
@@ -5109,19 +5389,40 @@
     }
 
     // ================= Tag Admin =================
-    function TagAdmin({ tags, onAdd, onRemove, onClose, getColor }) {
+    function TagAdmin({ tags, onAdd, onRemove, onRename, onClose, getColor }) {
       const [newTag, setNewTag] = useState("");
+      const [editingTag, setEditingTag] = useState(null);
+      const [editingText, setEditingText] = useState("");
+
+      const startEdit = (t) => { setEditingTag(t); setEditingText(t); };
+      const commitEdit = () => {
+        if (editingTag !== null) onRename(editingTag, editingText);
+        setEditingTag(null);
+      };
+
       return (
         <div style={styles.overlay} onClick={onClose}>
           <div style={styles.modal} onClick={e => e.stopPropagation()}>
             <div style={styles.modalHead}>
-              <div style={styles.modalTitle}>NSSの編集</div>
+              <div style={styles.modalTitle}>NSS・メーカーの編集</div>
               <button style={styles.iconBtn} onClick={onClose}><X size={16} /></button>
             </div>
+            <div style={{ fontSize: 11.5, color: inkDim, marginBottom: 8 }}>クリックで名前を編集できます</div>
             <div style={styles.tagAdminList}>
               {tags.map((t, i) => (
                 <div key={t} style={styles.tagAdminRow}>
-                  <span style={{ ...styles.pill, background: getColor(t, i) }}>{t}</span>
+                  {editingTag === t ? (
+                    <input
+                      style={{ ...styles.input, flex: 1 }}
+                      value={editingText}
+                      autoFocus
+                      onChange={e => setEditingText(e.target.value)}
+                      onBlur={commitEdit}
+                      onKeyDown={e => { if (e.key === "Enter") commitEdit(); if (e.key === "Escape") setEditingTag(null); }}
+                    />
+                  ) : (
+                    <span style={{ ...styles.pill, background: getColor(t, i), cursor: "pointer" }} onClick={() => startEdit(t)}>{t}</span>
+                  )}
                   <button style={styles.iconBtn} onClick={() => onRemove(t)}><Trash2 size={14} /></button>
                 </div>
               ))}
@@ -5129,7 +5430,7 @@
             <div style={styles.fieldRow}>
               <input
                 style={styles.input}
-                placeholder="新しいNSS名"
+                placeholder="新しいNSS・メーカー名"
                 value={newTag}
                 onChange={e => setNewTag(e.target.value)}
                 onKeyDown={e => { if (e.key === "Enter" && newTag.trim()) { onAdd(newTag); setNewTag(""); } }}
@@ -6095,6 +6396,11 @@
       },
       eyebrow: { fontSize: 10.5, letterSpacing: "0.16em", color: inkFaint, fontFamily: "'IBM Plex Mono', monospace", marginBottom: 7, textTransform: "uppercase" },
       title: { fontSize: 23, fontWeight: 600, margin: 0, letterSpacing: "-0.01em", color: ink },
+      versionBadge: {
+        marginLeft: 9, fontSize: 10.5, fontWeight: 600, fontFamily: "'IBM Plex Mono', monospace",
+        color: inkDim, background: "var(--clr151310)", border: `1px solid ${rule}`,
+        borderRadius: 5, padding: "1px 6px", verticalAlign: "middle",
+      },
       headerActions: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" },
       viewToggle: { display: "flex", background: paperRaised, borderRadius: 8, padding: 3, border: `1px solid ${rule}` },
       viewBtn: {
@@ -6333,7 +6639,7 @@
       boardScroll: { display: "flex", gap: 12, overflowX: "auto", paddingBottom: 8 },
       boardCol: {
         flex: "0 0 260px", width: 260, background: paperRaised, border: `1px solid ${rule}`,
-        borderRadius: 10, display: "flex", flexDirection: "column", maxHeight: "72vh", overflow: "hidden",
+        borderRadius: 10, display: "flex", flexDirection: "column", maxHeight: "80vh", overflow: "hidden",
       },
       boardColDragOver: { borderColor: amber },
       boardColHead: {
