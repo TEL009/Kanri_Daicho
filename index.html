@@ -238,7 +238,8 @@
 
     // ---------- app version ----------
     // 〇(メジャー).△(マイナー).×(パッチ) 形式。画面右上と「クラウド連携・管理メニュー」内に表示されます。
-    const APP_VERSION = "1.0.1";
+    const APP_VERSION = "1.0.2";
+    const AUTO_BACKUP_KEY = "kousei:auto-backups";
 
     // ---------- storage helpers ----------
     const REC_KEY = "kousei:records";
@@ -890,8 +891,19 @@
         recentlyDeletedRef.current[id] = Date.now();
       };
 
+      // 直近で把握しているクラウド側の件数。送信時に件数が急減していないか確認するための安全装置
+      const lastCloudCountRef = useRef(0);
+      // クラウドに無いレコードが連続して何回「無い」と判定されたか(一時的な欠落での誤削除を防ぐ)
+      const missingStreakRef = useRef({});
+
       const autoSyncToCloud = async (currentRecords) => {
         if (!gasUrl.trim()) return;
+        const known = lastCloudCountRef.current;
+        const n = currentRecords.length;
+        if (known >= 5 && (n === 0 || (known - n >= 5 && n < known * 0.7))) {
+          const ok = window.confirm(`クラウドの ${known} 件に対して、送信しようとしているのは ${n} 件です。\n件数が大きく減っています。通常の操作では起こりません。\n\nこのまま送信するとクラウドのデータが上書きされます。送信しますか？\n(キャンセルすると送信しません。画面を再読み込みするか「クラウドから取得」を試してください)`);
+          if (!ok) { setSyncError(true); return; }
+        }
         try {
           await fetch(gasUrl.trim(), {
             method: "POST",
@@ -899,6 +911,7 @@
             headers: { "Content-Type": "text/plain;charset=utf-8" },
             body: JSON.stringify({ syncRecords: currentRecords }),
           });
+          lastCloudCountRef.current = n;
         } catch (e) {
           console.error("Auto sync push error:", e);
           setSyncError(true);
@@ -917,6 +930,8 @@
           const json = await res.json();
           setSyncError(false);
           if (json && Array.isArray(json.records) && json.records.length > 0) {
+            lastCloudCountRef.current = json.records.length;
+            let decision = null;
             setRecords(prev => {
               const map = new Map(prev.map(r => [r.id, r]));
               let hasChange = false;
@@ -952,14 +967,26 @@
               });
               // クラウド側に存在しなくなったレコード(=他の端末で削除された)は、こちらでも削除する。
               // ただし直近で自分がローカル編集・作成したばかりのもの(まだクラウドに反映されていないだけ)は消さない
-              const cloudIds = new Set(json.records.map(r => r.id).filter(Boolean));
-              for (const localId of Array.from(map.keys())) {
-                if (cloudIds.has(localId)) continue;
-                const editedAt = recentlyEditedRef.current[localId];
-                if (editedAt && Date.now() - editedAt < RECENT_EDIT_GRACE_MS) continue;
-                map.delete(localId);
-                hasChange = true;
+              // v1.0.2: クラウド書き込み中の一時的な欠落で全件が消える不具合を防ぐため、
+              //  (1)連続2回の取得で「無い」と判定されたものだけを対象にし、
+              //  (2)一度に消えるのは全体の2割(最低3件)までとする。それ以上は削除せず保持する。
+              if (!decision) {
+                const cloudIds = new Set(json.records.map(r => r.id).filter(Boolean));
+                const prevStreak = missingStreakRef.current || {};
+                const nextStreak = {};
+                const confirmed = [];
+                for (const localId of Array.from(map.keys())) {
+                  if (cloudIds.has(localId)) continue;
+                  const editedAt = recentlyEditedRef.current[localId];
+                  if (editedAt && Date.now() - editedAt < RECENT_EDIT_GRACE_MS) continue;
+                  nextStreak[localId] = (prevStreak[localId] || 0) + 1;
+                  if (nextStreak[localId] >= 2) confirmed.push(localId);
+                }
+                missingStreakRef.current = nextStreak;
+                const limit = Math.max(3, Math.floor(map.size * 0.2));
+                decision = { ids: confirmed.length > 0 && confirmed.length <= limit ? confirmed : [] };
               }
+              decision.ids.forEach(id => { if (map.delete(id)) hasChange = true; });
               return hasChange ? Array.from(map.values()) : prev;
             });
           }
@@ -1002,6 +1029,48 @@
           document.removeEventListener("visibilitychange", onVisible);
         };
       }, [gasUrl, showForm, showEquip, silentFetchFromCloud]);
+
+      // ---------- 自動ローカルバックアップ(v1.0.2) ----------
+      // 1時間以上空けてスナップショットを最大12世代保存する。件数が直近の最大値の7割未満に急減した状態は保存しない
+      useEffect(() => {
+        if (!ready || records.length === 0) return;
+        const timer = setTimeout(() => {
+          try {
+            const list = JSON.parse(localStorage.getItem(AUTO_BACKUP_KEY) || "[]");
+            const now = Date.now();
+            const last = list[list.length - 1];
+            if (last && now - last.t < 60 * 60 * 1000) return;
+            const maxN = list.reduce((m, b) => Math.max(m, b.n || 0), 0);
+            if (maxN >= 5 && records.length < maxN * 0.7) return;
+            list.push({ t: now, n: records.length, records });
+            while (list.length > 12) {
+              let peak = 0;
+              list.forEach((b, i) => { if (b.n > list[peak].n) peak = i; });
+              list.splice(peak === 0 ? 1 : 0, 1);
+            }
+            localStorage.setItem(AUTO_BACKUP_KEY, JSON.stringify(list));
+          } catch (e) { /* 容量超過などは無視 */ }
+        }, 60000);
+        return () => clearTimeout(timer);
+      }, [records, ready]);
+
+      const restoreFromAutoBackup = () => {
+        let list = [];
+        try { list = JSON.parse(localStorage.getItem(AUTO_BACKUP_KEY) || "[]"); } catch (e) { list = []; }
+        if (!list.length) { alert("自動バックアップはまだありません。"); return; }
+        const menu = list.map((b, i) => `${i + 1}: ${new Date(b.t).toLocaleString("ja-JP")}  (${b.n}件)`).reverse().join("\n");
+        const input = window.prompt(`復元する自動バックアップの番号を入力してください。\n(この端末のブラウザ内に保存されたものです)\n\n${menu}`);
+        if (!input) return;
+        const idx = parseInt(input, 10) - 1;
+        const b = list[idx];
+        if (!b) { alert("番号が正しくありません。"); return; }
+        if (!window.confirm(`${new Date(b.t).toLocaleString("ja-JP")} の ${b.n} 件に戻します。現在のデータは上書きされます(元に戻す ↶ で戻せます)。よろしいですか？`)) return;
+        pushUndo();
+        b.records.forEach(r => markRecentlyEdited(r.id));
+        setRecords(b.records);
+        autoSyncToCloud(b.records);
+        alert("自動バックアップから復元しました。");
+      };
 
       const saveRecord = (rec, openEquipAfter = false) => {
         pushUndo();
@@ -1369,6 +1438,10 @@
           if (!res.ok) throw new Error(`サーバーエラー (HTTP ${res.status})`);
           const json = await res.json();
           if (json && Array.isArray(json.records)) {
+            if (records.length >= 5 && json.records.length < records.length * 0.5) {
+              if (!window.confirm(`クラウドのデータは ${json.records.length} 件ですが、この端末には ${records.length} 件あります。\nクラウドの方が大幅に少ないため、取得すると端末側の ${records.length - json.records.length} 件前後が消えます。\n\n取得して統合しますか？(「バックアップ復元」や自動バックアップからの復元もできます)`)) { setSyncing(false); return; }
+            }
+            lastCloudCountRef.current = json.records.length;
             pushUndo();
             const map = new Map(records.map(r => [r.id, r]));
             json.records.forEach(r => {
@@ -2083,6 +2156,9 @@
             </button>
             <button style={styles.ghostBtn} onClick={() => backupInputRef.current?.click()} title="JSONファイルからデータを復元">
               <Upload size={14} /> バックアップ復元
+            </button>
+            <button style={styles.ghostBtn} onClick={restoreFromAutoBackup} title="この端末に自動保存された過去のデータから復元">
+              <Upload size={14} /> 自動バックアップから復元
             </button>
               </div>
             )}
