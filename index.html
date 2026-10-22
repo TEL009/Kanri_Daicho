@@ -145,7 +145,8 @@
     td.ledger-sticky-cell { background: var(--clr141310); }
     .ledger-row:hover td.ledger-sticky-cell { background: var(--clr211e18); box-shadow: inset 3px 0 0 var(--clrc68a3d); }
     .ledger-actions { opacity: 0.55; transition: opacity 0.12s ease; }
-    .ledger-row:hover .ledger-actions { opacity: 1; }
+    @media (hover: hover) { .ledger-actions { opacity: 0; } }
+    .ledger-row:hover .ledger-actions, .ledger-row:focus-within .ledger-actions { opacity: 1; }
     
     .ledger-th { transition: background 0.12s ease; cursor: pointer; user-select: none; }
     .ledger-th:hover { background: var(--clr28241c); color: var(--clrece7dc); }
@@ -238,7 +239,7 @@
 
     // ---------- app version ----------
     // 〇(メジャー).△(マイナー).×(パッチ) 形式。画面右上と「クラウド連携・管理メニュー」内に表示されます。
-    const APP_VERSION = "1.0.2";
+    const APP_VERSION = "1.0.3";
     const AUTO_BACKUP_KEY = "kousei:auto-backups";
 
     // ---------- storage helpers ----------
@@ -498,6 +499,9 @@
     const isUnorganized = (r) => !r.visitDate && !r.precheckDate && !r.workDate && !r.honkouseiDate;
     // NSS・メーカーは複数選択に対応。旧データ(単一の r.tag 文字列)との互換のため、
     // 常にこの関数経由で配列として取得する。
+    // 種別の短い表示名(列幅が狭い所での文字切れ防止)
+    const KIND_SHORT_NAMES = { "修理・不具合対応": "修理", "機器設置": "設置" };
+    const kindShortName = (name) => KIND_SHORT_NAMES[name] || name || "";
     const recordTagsOf = (r) => (r && r.tags && r.tags.length ? r.tags : (r && r.tag ? [r.tag] : []));
     const computeAutoStatus = (record, statusList, kinds) => {
       if (!record || !Array.isArray(statusList) || statusList.length === 0) return record;
@@ -514,7 +518,7 @@
         date1 = record.precheckDate; date2 = record.honkouseiDate;
         enteredTarget1 = "事前点検日程調整済"; passedTarget1 = "事前点検完了";
         enteredTarget2 = "本校正日程調整済"; passedTarget2 = "本校正完了";
-      } else if (dateMode === "double") {
+      } else if (dateMode === "double" || record.workDate) {
         // 修理・不具合対応、および2段階設定の追加種別はすべて同じ「訪問→作業」型の日程・ステータス名を使う
         date1 = record.visitDate; date2 = record.workDate;
         enteredTarget1 = "訪問日程調整済"; passedTarget1 = "訪問対応済";
@@ -629,6 +633,9 @@
       const [boardLayout, setBoardLayout, boardLayoutLoaded] = useStorageState(BOARD_LAYOUT_KEY, "row");
       const [boardScale, setBoardScale, boardScaleLoaded] = useStorageState(BOARD_SCALE_KEY, "100");
       const [boardRouteFilter, setBoardRouteFilter] = useState("修理・点検");
+      // 受付ボードで非表示にしている種別(チップで絞り込み。初期は全部表示)
+      const [kouseiTab, setKouseiTab] = useState("board");
+      const [hiddenBoardKinds, setHiddenBoardKinds] = useStorageState("kousei:board-hidden-kinds", []);
       const [tableColumnOrder, setTableColumnOrder, tableColLoaded] = useStorageState(TABLE_COL_KEY, DEFAULT_COLUMN_ORDER);
       const [tableHiddenColumns, setTableHiddenColumns, tableHiddenLoaded] = useStorageState(TABLE_HIDDEN_COL_KEY, []);
       const [baseColumnSort, setBaseColumnSort, baseSortLoaded] = useStorageState(TABLE_SORT_KEY, null);
@@ -998,7 +1005,8 @@
       }, [gasUrl, syncing]);
 
       useEffect(() => {
-        if (!gasUrl.trim()) return;
+        // 端末内データの読み込みが終わる前にクラウドと突き合わせると、空の状態を基準に統合してしまうため待つ
+        if (!gasUrl.trim() || !ready) return;
         silentFetchFromCloud();
 
         const interval = setInterval(() => {
@@ -1028,7 +1036,7 @@
           window.removeEventListener("focus", onFocus);
           document.removeEventListener("visibilitychange", onVisible);
         };
-      }, [gasUrl, showForm, showEquip, silentFetchFromCloud]);
+      }, [gasUrl, ready, showForm, showEquip, silentFetchFromCloud]);
 
       // ---------- 自動ローカルバックアップ(v1.0.2) ----------
       // 1時間以上空けてスナップショットを最大12世代保存する。件数が直近の最大値の7割未満に急減した状態は保存しない
@@ -1053,6 +1061,25 @@
         }, 60000);
         return () => clearTimeout(timer);
       }, [records, ready]);
+
+      // v1.0.3: 台帳タブ「修理・点検」の種別絞り込みに、ボードと同じ分け方(設置・その他)を一度だけ補う
+      useEffect(() => {
+        if (!ready) return;
+        try {
+          if (localStorage.getItem("kousei:migr-v103-views")) return;
+          localStorage.setItem("kousei:migr-v103-views", "1");
+        } catch (e) { return; }
+        setCustomTableViews(prev => prev.map(v => {
+          const f = v && v.filters && v.filters.kind;
+          if (v && v.name === "修理・点検" && f && Array.isArray(f.values) && f.values.length > 0) {
+            const add = ["機器設置", "その他"].filter(x => !f.values.includes(x));
+            if (add.length === 0) return v;
+            return { ...v, filters: { ...v.filters, kind: { ...f, values: [...f.values, ...add] } } };
+          }
+          return v;
+        }));
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, [ready]);
 
       const restoreFromAutoBackup = () => {
         let list = [];
@@ -1740,7 +1767,10 @@
         const onKeyDown = (e) => {
           if (e.key === "Escape") {
             if (showEquip) { setShowEquip(null); return; }
-            if (showForm) { setShowForm(false); setEditing(null); return; }
+            if (showForm) {
+              if (window.__kouseiFormDirty && window.__kouseiFormDirty() && !window.confirm("入力した内容があります。破棄して閉じますか？")) return;
+              setShowForm(false); setEditing(null); return;
+            }
             if (showQuickAdd) { setShowQuickAdd(false); return; }
             if (showImport) { setShowImport(false); return; }
             if (showTagAdmin) { setShowTagAdmin(false); return; }
@@ -1852,7 +1882,7 @@
                 </button>
                 <button
                   style={{ ...styles.viewBtn, ...(view === "board" ? styles.viewBtnActive : {}) }}
-                  onClick={() => setView("board")}
+                  onClick={() => { setView("board"); setBoardRouteFilter("修理・点検"); }}
                 >
                   <Columns size={15} /> ボード
                 </button>
@@ -1861,6 +1891,12 @@
                   onClick={() => setView("calendar")}
                 >
                   <CalendarIcon size={15} /> カレンダー
+                </button>
+                <button
+                  style={{ ...styles.viewBtn, ...(view === "kousei" ? styles.viewBtnActive : {}) }}
+                  onClick={() => { setView("kousei"); setBoardRouteFilter("校正"); }}
+                >
+                  <Disc size={15} /> 校正
                 </button>
               </div>
               <button style={styles.primaryBtn} onClick={() => { setEditing(null); setShowForm(true); }}>
@@ -1936,22 +1972,25 @@
                 </button>
               </div>
             )}
-            {view === "board" && (
+            {(view === "board" || (view === "kousei" && kouseiTab === "board")) && (
               <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                <div style={styles.viewToggle}>
-                  <button
-                    style={{ ...styles.viewBtn, ...(boardRouteFilter === "修理・点検" ? styles.viewBtnActive : {}) }}
-                    onClick={() => setBoardRouteFilter("修理・点検")}
-                  >修理・点検</button>
-                  <button
-                    style={{ ...styles.viewBtn, ...(boardRouteFilter === "機器設置" ? styles.viewBtnActive : {}) }}
-                    onClick={() => setBoardRouteFilter("機器設置")}
-                  >設置</button>
-                  <button
-                    style={{ ...styles.viewBtn, ...(boardRouteFilter === "校正" ? styles.viewBtnActive : {}) }}
-                    onClick={() => setBoardRouteFilter("校正")}
-                  >校正</button>
-                </div>
+                {view === "board" && (
+                  <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }} title="表示する種別を選びます(複数選択可)">
+                    {kinds.filter(k => k.name !== "校正").map(k => {
+                      const on = !hiddenBoardKinds.includes(k.name);
+                      const c = getColor(k.name, 0);
+                      return (
+                        <button
+                          key={k.id}
+                          onClick={() => setHiddenBoardKinds(prev => prev.includes(k.name) ? prev.filter(x => x !== k.name) : [...prev, k.name])}
+                          style={{ ...styles.viewBtn, border: `1px solid ${c}`, background: on ? c : "transparent", color: on ? "var(--clr151310)" : "var(--clrc7c1b3)", opacity: on ? 1 : 0.7, display: "inline-flex", alignItems: "center", gap: 4 }}
+                        >
+                          {on ? <Check size={12} /> : null}{kindShortName(k.name)}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
 
                 <div style={styles.viewToggle}>
                   <button
@@ -2066,12 +2105,27 @@
               onRenameTag={renameTag}
             />
           )}
-          {view === "board" && (
+          {view === "kousei" && (
+            <div style={{ display: "flex", gap: 6, alignItems: "center", margin: "4px 0 14px", flexWrap: "wrap" }}>
+              {[["board", "校正ボード"], ["annual", "拠点×機器 年間一覧"], ["due", "期限が近いもの"]].map(([id, label]) => (
+                <button key={id} style={{ ...styles.viewBtn, ...(kouseiTab === id ? styles.viewBtnActive : {}) }} onClick={() => setKouseiTab(id)}>{label}</button>
+              ))}
+            </div>
+          )}
+          {view === "kousei" && kouseiTab !== "board" && (
+            <KouseiListView
+              records={filtered.filter(r => r.kind === "校正")}
+              mode={kouseiTab}
+              onEdit={(r) => { setEditing(r); setShowForm(true); }}
+              onOpenEquip={(r) => setShowEquip(r)}
+            />
+          )}
+          {(view === "board" || (view === "kousei" && kouseiTab === "board")) && (
             <BoardView
+              onSetLayout={setBoardLayout}
               records={filtered.filter(r => {
                 if (boardRouteFilter === "校正") return r.kind === "校正";
-                if (boardRouteFilter === "機器設置") return r.kind === "機器設置";
-                return r.kind !== "校正" && r.kind !== "機器設置";
+                return r.kind !== "校正" && !hiddenBoardKinds.includes(r.kind);
               })}
               codes={codes}
               tags={tags}
@@ -2119,7 +2173,7 @@
               )}
             </button>
             {!footerCollapsed && (
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, position: "absolute", left: 0, right: 0, bottom: "100%", background: "var(--clr161410)", borderTop: `1px solid ${rule}`, padding: "12px 24px", maxHeight: "50vh", overflowY: "auto", boxShadow: "0 -8px 24px rgba(0,0,0,0.35)", justifyContent: "center" }}>
             <button style={{ ...styles.ghostBtn, ...(gasUrl ? styles.ghostBtnActiveCloud : {}) }} onClick={fetchFromCloud} disabled={syncing} title="クラウドから最新データを手動取得">
               <RefreshCw size={14} className={syncing ? "spin-icon" : ""} /> {syncing ? "同期中…" : "クラウドから取得"}
             </button>
@@ -2965,12 +3019,12 @@
       serialYear: { label: "製造番号・年式", editable: "text" },
       content: { label: "内容", editable: "textarea" },
       receivedDate: { label: "受付日時", editable: "datetime", dateField: "receivedDate", timeField: "receivedTime" },
-      visitDate: { label: "対応日程(訪問)", editable: "datetime", dateField: "visitDate", timeField: "visitTime", endDateField: "visitEndDate" },
-      workDate: { label: "作業日程(修理)", editable: "datetime", dateField: "workDate", timeField: "workTime", endDateField: "workEndDate" },
+      visitDate: { label: "訪問日", editable: "datetime", dateField: "visitDate", timeField: "visitTime", endDateField: "visitEndDate" },
+      workDate: { label: "作業日", editable: "datetime", dateField: "workDate", timeField: "workTime", endDateField: "workEndDate" },
       tag: { label: "NSS・メーカー", editable: "select-tag" },
       code: { label: "コード", editable: null },
-      precheckDate: { label: "事前点検日時", editable: "datetime", dateField: "precheckDate", timeField: "precheckTime", endDateField: "precheckEndDate" },
-      honkouseiDate: { label: "本校正日時", editable: "datetime", dateField: "honkouseiDate", timeField: "honkouseiTime", endDateField: "honkouseiEndDate" },
+      precheckDate: { label: "事前点検日", editable: "datetime", dateField: "precheckDate", timeField: "precheckTime", endDateField: "precheckEndDate" },
+      honkouseiDate: { label: "本校正日", editable: "datetime", dateField: "honkouseiDate", timeField: "honkouseiTime", endDateField: "honkouseiEndDate" },
       status: { label: "手配状況", editable: "select-status" },
     };
 
@@ -3146,7 +3200,7 @@
               : <span className="ledger-empty-plus">＋</span>;
           case "kind":
             return r.kind
-              ? <span style={{ ...styles.pill, background: getColor(r.kind, 0) }}>{r.kind}</span>
+              ? <span style={{ ...styles.pill, background: getColor(r.kind, 0) }} title={r.kind}>{kindShortName(r.kind)}</span>
               : <span className="ledger-empty-plus">＋</span>;
           case "customer":
             return r.customer
@@ -3773,7 +3827,6 @@
 
       const boardFilteredRecords = useMemo(() => allRecords.filter(r => {
         if (boardRouteFilter === "校正") return r.kind === "校正";
-        if (boardRouteFilter === "機器設置") return r.kind === "機器設置";
         return r.kind !== "校正" && r.kind !== "機器設置";
       }), [allRecords, boardRouteFilter]);
 
@@ -3865,14 +3918,7 @@
                     padding: "6px 10px", borderRadius: 8, fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", border: "1px solid var(--clr3a352b)",
                     background: boardRouteFilter === "修理・点検" ? "var(--clrc68a3d)" : "transparent", color: boardRouteFilter === "修理・点検" ? "var(--clr151310)" : "var(--clrc7c1b3)",
                   }}
-                >修理・点検</button>
-                <button
-                  onClick={() => setBoardRouteFilter("機器設置")}
-                  style={{
-                    padding: "6px 10px", borderRadius: 8, fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", border: "1px solid var(--clr3a352b)",
-                    background: boardRouteFilter === "機器設置" ? "var(--clrc68a3d)" : "transparent", color: boardRouteFilter === "機器設置" ? "var(--clr151310)" : "var(--clrc7c1b3)",
-                  }}
-                >設置</button>
+                >受付(修理・点検・設置)</button>
                 <button
                   onClick={() => setBoardRouteFilter("校正")}
                   style={{
@@ -4058,11 +4104,11 @@
               <button
                 style={{ ...styles.viewBtn, ...(axis === "precheck" ? styles.viewBtnActive : {}) }}
                 onClick={() => setAxis("precheck")}
-              >第1日程 (事前点検/訪問)</button>
+              >第1日程 (訪問日・事前点検日)</button>
               <button
                 style={{ ...styles.viewBtn, ...(axis === "honkousei" ? styles.viewBtnActive : {}) }}
                 onClick={() => setAxis("honkousei")}
-              >第2日程 (本校正/作業)</button>
+              >第2日程 (作業日・本校正日)</button>
               <button
                 style={{ ...styles.viewBtn, ...(axis === "all" ? styles.viewBtnActive : {}) }}
                 onClick={() => setAxis("all")}
@@ -4071,7 +4117,7 @@
           </div>
           {axis === "all" && (
             <div style={{ fontSize: 11, color: "var(--clr8f8a7c)", marginBottom: 10 }}>
-              ① 第1日程(事前点検/訪問)　② 第2日程(本校正/作業)
+              ① 第1日程(訪問日・事前点検日)　② 第2日程(作業日・本校正日)
             </div>
           )}
 
@@ -4226,7 +4272,91 @@
 
     // ================= Board View =================
 
-    function BoardView({ records, codes, tags, statuses, statusVisibility, layout, scale, onEdit, onDelete, onOpenEquip, onMoveStatus, onReorderStatuses, onExpandStatus, getColor }) {
+    // ---------- 校正タブ: 拠点×機器の年間一覧 / 期限が近いもの ----------
+    const addMonthsIso = (iso, n) => {
+      if (!iso) return "";
+      const [y, m, d] = iso.split("-").map(Number);
+      const dt = new Date(y, m - 1 + n, d);
+      return toISODate(dt);
+    };
+    function KouseiListView({ records, mode, onEdit, onOpenEquip }) {
+      const today = toISODate(new Date());
+      const groups = useMemo(() => {
+        const map = new Map();
+        records.forEach(r => {
+          const key = `${r.subject || "(拠点未入力)"}||${r.model || ""}`;
+          if (!map.has(key)) map.set(key, { key, subject: r.subject || "(拠点未入力)", model: r.model || "", items: [] });
+          map.get(key).items.push(r);
+        });
+        return Array.from(map.values()).map(g => {
+          const done = g.items.filter(r => r.honkouseiDate && r.honkouseiDate <= today).sort((a, b) => b.honkouseiDate.localeCompare(a.honkouseiDate));
+          const future = g.items.filter(r => (r.honkouseiDate && r.honkouseiDate > today) || (r.precheckDate && r.precheckDate >= today)).sort((a, b) => String(a.honkouseiDate || a.precheckDate).localeCompare(String(b.honkouseiDate || b.precheckDate)));
+          const last = done[0] || null;
+          const lastDate = last ? last.honkouseiDate : "";
+          const nextDue = lastDate ? addMonthsIso(lastDate, 12) : "";
+          const warnFrom = lastDate ? addMonthsIso(lastDate, 11) : "";
+          const planned = future[0] || null;
+          const plannedDate = planned ? (planned.honkouseiDate && planned.honkouseiDate > today ? planned.honkouseiDate : planned.precheckDate) : "";
+          let level = "ok";
+          if (!lastDate) level = "none";
+          else if (nextDue < today) level = "over";
+          else if (warnFrom <= today) level = "warn";
+          const sheetRec = [last, ...g.items].find(r => r && r.equipmentSheets && r.equipmentSheets.length > 0) || last || g.items[0];
+          return { ...g, last, lastDate, nextDue, planned, plannedDate, level, sheetRec, count: g.items.length };
+        }).sort((a, b) => (a.subject).localeCompare(b.subject, "ja") || a.model.localeCompare(b.model, "ja"));
+      }, [records, today]);
+
+      const rows = mode === "due"
+        ? groups.filter(g => (g.level === "warn" || g.level === "over") && !g.planned).sort((a, b) => a.nextDue.localeCompare(b.nextDue))
+        : groups;
+      const th = { textAlign: "left", padding: "8px 10px", fontSize: 12, color: "var(--clr8f8a7c)", borderBottom: "1px solid var(--clr3a352b)", whiteSpace: "nowrap" };
+      const td = { padding: "8px 10px", fontSize: 13, color: "var(--clre9e4d8)", borderBottom: "1px solid var(--clr3a352b)" };
+      const badge = (g) => {
+        if (g.level === "over") return <span style={{ color: "#d9644a", fontWeight: 700 }}>期限超過</span>;
+        if (g.level === "warn") return <span style={{ color: "#d19a2e", fontWeight: 700 }}>もうすぐ期限</span>;
+        if (g.level === "none") return <span style={{ color: "var(--clr8f8a7c)" }}>校正実績なし</span>;
+        return <span style={{ color: "#6aa57a" }}>問題なし</span>;
+      };
+      if (records.length === 0) {
+        return <div style={{ padding: "40px 0", textAlign: "center", color: "var(--clr8f8a7c)", fontSize: 13 }}>校正の案件がまだありません。種別「校正」で登録すると、ここに拠点×機器ごとの一覧が出ます。</div>;
+      }
+      return (
+        <div style={{ overflowX: "auto" }}>
+          <div style={{ fontSize: 12, color: "var(--clr8f8a7c)", marginBottom: 8, lineHeight: 1.6 }}>
+            前回校正日 = 本校正日が今日以前の最新日付。次回目安 = 前回校正日の12か月後。前回から11か月以上経過で警告、12か月超で期限超過。次回の事前点検日・本校正日が入っているものは「予定済み」として警告から除きます。
+          </div>
+          {rows.length === 0 ? (
+            <div style={{ padding: "30px 0", textAlign: "center", color: "var(--clr8f8a7c)", fontSize: 13 }}>期限が近い・超過している校正はありません。</div>
+          ) : (
+            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 760 }}>
+              <thead>
+                <tr>
+                  <th style={th}>拠点</th><th style={th}>機器(型式)</th><th style={th}>前回校正日</th><th style={th}>次回目安</th><th style={th}>状態</th><th style={th}>予定</th><th style={th}>件数</th><th style={th}>点検票</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map(g => (
+                  <tr key={g.key}>
+                    <td style={{ ...td, fontWeight: 600, cursor: "pointer" }} onClick={() => onEdit(g.last || g.items[0])}>{g.subject}</td>
+                    <td style={td}>{g.model || "-"}</td>
+                    <td style={td}>{g.lastDate || "-"}</td>
+                    <td style={td}>{g.nextDue || "-"}</td>
+                    <td style={td}>{badge(g)}</td>
+                    <td style={td}>{g.plannedDate ? `予定済み(${g.plannedDate})` : "-"}</td>
+                    <td style={td}>{g.count}</td>
+                    <td style={td}>
+                      <button style={styles.ghostBtn} onClick={() => onOpenEquip(g.sheetRec)}><FileText size={13} /> 開く</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      );
+    }
+
+    function BoardView({ onSetLayout, records, codes, tags, statuses, statusVisibility, layout, scale, onEdit, onDelete, onOpenEquip, onMoveStatus, onReorderStatuses, onExpandStatus, getColor }) {
       const [dragCardId, setDragCardId] = useState(null);
       const [dragStatus, setDragStatus] = useState(null);
       const [overStatus, setOverStatus] = useState(null);
@@ -4303,9 +4433,19 @@
       const boardCardContentDynamic = { fontSize: f(11.5, 10) };
       const scrollGapDynamic = { gap: f(12, 8) };
 
+      const crowded = layout !== "grid" && onSetLayout
+        ? fullStatuses.map(st => [st, (byStatus.map[st] || []).length]).filter(([, n]) => n >= 10).sort((a, b) => b[1] - a[1])[0]
+        : null;
+
       return (
         <div style={styles.boardOuterRow}>
           <div style={styles.boardWrap}>
+            {crowded && (
+              <div style={{ fontSize: 12, color: "var(--clrc7c1b3)", margin: "0 0 8px", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                「{crowded[0]}」が {crowded[1]} 件あります。列の中でスクロールするより、グリッド表示のほうが一覧しやすくなります。
+                <button style={styles.ghostBtn} onClick={() => onSetLayout("grid")}>グリッド表示に切り替え</button>
+              </div>
+            )}
             <div style={{ ...scrollStyle, ...scrollGapDynamic }}>
               {fullStatuses.map((status) => (
                 <div
@@ -4620,6 +4760,15 @@
       const [honkouseiTime, setHonkouseiTime] = useState(initial?.honkouseiTime || "");
       const [honkouseiEndDate, setHonkouseiEndDate] = useState(toISODate(initial?.honkouseiEndDate) || "");
 
+      // 入力途中でEscを押したとき、内容が変わっていれば確認を出すための変更検知
+      const formSnapshot = JSON.stringify([subject, kind, code, customer, contactName, personInCharge, model, serialYear, content, status, recordTags, note, receivedDate, receivedTime, visitDate, visitTime, visitEndDate, workDate, workTime, workEndDate, precheckDate, precheckTime, precheckEndDate, honkouseiDate, honkouseiTime, honkouseiEndDate]);
+      const formInitialSnapshotRef = useRef(null);
+      if (formInitialSnapshotRef.current === null) formInitialSnapshotRef.current = formSnapshot;
+      useEffect(() => {
+        window.__kouseiFormDirty = () => formSnapshot !== formInitialSnapshotRef.current;
+        return () => { window.__kouseiFormDirty = null; };
+      }, [formSnapshot]);
+
       const [codeQuery, setCodeQuery] = useState("");
       const [showSuggest, setShowSuggest] = useState(false);
       const [codeCopied, setCodeCopied] = useState(false);
@@ -4903,19 +5052,19 @@
               </div>
 
               <div style={styles.notionSubSectionTitle}>
-                {kind === "校正" ? "校正日程" : (kind === "修理・不具合対応" ? "修理・対応日程" : "実施日程")}
+                {kind === "校正" ? "校正日程(事前点検日・本校正日)" : "日程(訪問日・作業日)"}
               </div>
 
               {kind === "校正" && (
                 <React.Fragment>
                   <div className="prop-row">
-                    <div className="prop-label"><CalendarIcon size={14} /> 事前点検日時</div>
+                    <div className="prop-label"><CalendarIcon size={14} /> 事前点検日</div>
                     <div className="prop-value" style={{ display: "flex", alignItems: "center" }}>
                       <DateTimePicker dateValue={precheckDate} timeValue={precheckTime} onDateChange={setPrecheckDate} onTimeChange={setPrecheckTime} endDateValue={precheckEndDate} onEndDateChange={setPrecheckEndDate} />
                     </div>
                   </div>
                   <div className="prop-row">
-                    <div className="prop-label"><CalendarIcon size={14} /> 本校正日時</div>
+                    <div className="prop-label"><CalendarIcon size={14} /> 本校正日</div>
                     <div className="prop-value" style={{ display: "flex", alignItems: "center" }}>
                       <DateTimePicker dateValue={honkouseiDate} timeValue={honkouseiTime} onDateChange={setHonkouseiDate} onTimeChange={setHonkouseiTime} endDateValue={honkouseiEndDate} onEndDateChange={setHonkouseiEndDate} />
                     </div>
@@ -4923,53 +5072,22 @@
                 </React.Fragment>
               )}
 
-              {kind === "修理・不具合対応" && (
+              {kind !== "校正" && (
                 <React.Fragment>
                   <div className="prop-row">
-                    <div className="prop-label"><CalendarIcon size={14} /> 訪問・調査日程</div>
+                    <div className="prop-label"><CalendarIcon size={14} /> 訪問日</div>
                     <div className="prop-value" style={{ display: "flex", alignItems: "center" }}>
                       <DateTimePicker dateValue={visitDate} timeValue={visitTime} onDateChange={setVisitDate} onTimeChange={setVisitTime} endDateValue={visitEndDate} onEndDateChange={setVisitEndDate} />
                     </div>
                   </div>
                   <div className="prop-row">
-                    <div className="prop-label"><CalendarIcon size={14} /> 作業・修理日程</div>
+                    <div className="prop-label"><CalendarIcon size={14} /> 作業日</div>
                     <div className="prop-value" style={{ display: "flex", alignItems: "center" }}>
                       <DateTimePicker dateValue={workDate} timeValue={workTime} onDateChange={setWorkDate} onTimeChange={setWorkTime} endDateValue={workEndDate} onEndDateChange={setWorkEndDate} />
                     </div>
                   </div>
                 </React.Fragment>
               )}
-
-              {kind !== "校正" && kind !== "修理・不具合対応" && (() => {
-                const kindDef = (kinds || []).find(k => k.name === kind);
-                const dateMode = kindDef ? kindDef.dateMode : "single";
-                if (dateMode === "double") {
-                  return (
-                    <React.Fragment>
-                      <div className="prop-row">
-                        <div className="prop-label"><CalendarIcon size={14} /> ①日程</div>
-                        <div className="prop-value" style={{ display: "flex", alignItems: "center" }}>
-                          <DateTimePicker dateValue={visitDate} timeValue={visitTime} onDateChange={setVisitDate} onTimeChange={setVisitTime} endDateValue={visitEndDate} onEndDateChange={setVisitEndDate} />
-                        </div>
-                      </div>
-                      <div className="prop-row">
-                        <div className="prop-label"><CalendarIcon size={14} /> ②日程</div>
-                        <div className="prop-value" style={{ display: "flex", alignItems: "center" }}>
-                          <DateTimePicker dateValue={workDate} timeValue={workTime} onDateChange={setWorkDate} onTimeChange={setWorkTime} endDateValue={workEndDate} onEndDateChange={setWorkEndDate} />
-                        </div>
-                      </div>
-                    </React.Fragment>
-                  );
-                }
-                return (
-                  <div className="prop-row">
-                    <div className="prop-label"><CalendarIcon size={14} /> 実施予定日時</div>
-                    <div className="prop-value" style={{ display: "flex", alignItems: "center" }}>
-                      <DateTimePicker dateValue={visitDate} timeValue={visitTime} onDateChange={setVisitDate} onTimeChange={setVisitTime} endDateValue={visitEndDate} onEndDateChange={setVisitEndDate} />
-                    </div>
-                  </div>
-                );
-              })()}
 
               <div className="prop-row">
                 <div className="prop-label"><Disc size={14} /> 手配状況</div>
@@ -6633,7 +6751,7 @@
       },
       footerBar: {
         position: "fixed", bottom: 0, left: 0, right: 0, background: "var(--clr161410)", borderTop: `1px solid ${rule}`,
-        padding: "12px 24px", display: "flex", gap: 10, justifyContent: "center", alignItems: "center", flexWrap: "wrap", zIndex: 40,
+        padding: "8px 24px", display: "flex", gap: 10, justifyContent: "center", alignItems: "center", flexWrap: "wrap", zIndex: 40,
       },
       overlay: {
         position: "fixed", inset: 0, background: "rgba(10,9,6,0.65)", display: "flex",
