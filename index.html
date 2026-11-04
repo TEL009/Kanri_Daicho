@@ -140,6 +140,10 @@
     *::-webkit-scrollbar-thumb { background: var(--clr322d24); border-radius: 6px; }
     *::-webkit-scrollbar-thumb:hover { background: var(--clr443d2f); }
 
+    .board-card-container { position: relative; }
+    .board-card-copy { position: absolute; top: 4px; right: 4px; opacity: 0; transition: opacity 0.12s ease; z-index: 2; }
+    @media (hover: none) { .board-card-copy { opacity: 0.6; } }
+    .board-card-container:hover .board-card-copy, .board-card-copy:focus { opacity: 1; }
     .ledger-row { position: relative; transition: background 0.12s ease, box-shadow 0.12s ease; }
     .ledger-row:hover { background: var(--clr211e18); box-shadow: inset 3px 0 0 var(--clrc68a3d); }
     td.ledger-sticky-cell { background: var(--clr141310); }
@@ -219,6 +223,7 @@
     const Keyboard = (p) => <Icon {...p}><rect x="2" y="4" width="20" height="16" rx="2"/><line x1="6" y1="8" x2="6.01" y2="8"/><line x1="10" y1="8" x2="10.01" y2="8"/><line x1="14" y1="8" x2="14.01" y2="8"/><line x1="18" y1="8" x2="18.01" y2="8"/><line x1="6" y1="12" x2="6.01" y2="12"/><line x1="10" y1="12" x2="10.01" y2="12"/><line x1="14" y1="12" x2="14.01" y2="12"/><line x1="18" y1="12" x2="18.01" y2="12"/><line x1="7" y1="16" x2="17" y2="16"/></Icon>;
     const Columns = (p) => <Icon {...p}><path d="M12 3h7a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-7m0-18H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h7m0-18v18"/></Icon>;
     const GripVertical = (p) => <Icon {...p}><circle cx="9" cy="12" r="1"/><circle cx="9" cy="5" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="19" r="1"/></Icon>;
+    const CopyIcon = (p) => <Icon {...p}><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></Icon>;
     const Check = (p) => <Icon {...p}><polyline points="20 6 9 17 4 12"/></Icon>;
     const Eye = (p) => <Icon {...p}><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></Icon>;
     const EyeOff = (p) => <Icon {...p}><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></Icon>;
@@ -239,7 +244,7 @@
 
     // ---------- app version ----------
     // 〇(メジャー).△(マイナー).×(パッチ) 形式。画面右上と「クラウド連携・管理メニュー」内に表示されます。
-    const APP_VERSION = "1.0.3";
+    const APP_VERSION = "1.0.4";
     const AUTO_BACKUP_KEY = "kousei:auto-backups";
 
     // ---------- storage helpers ----------
@@ -1130,6 +1135,23 @@
         if (openEquipAfter && targetRecord) {
           setShowEquip(targetRecord);
         }
+      };
+
+      // ボードのカードをコピーして新規登録(日程・ステータス・添付・備考は初期化し、拠点/顧客/内容などは引き継ぐ)
+      const duplicateRecord = (r) => {
+        const kindName = r.kind || "校正";
+        setEditing({
+          ...r,
+          id: undefined,
+          receivedDate: toISODate(new Date()), receivedTime: "",
+          visitDate: "", visitTime: "", visitEndDate: "",
+          workDate: "", workTime: "", workEndDate: "",
+          precheckDate: "", precheckTime: "", precheckEndDate: "",
+          honkouseiDate: "", honkouseiTime: "", honkouseiEndDate: "",
+          status: (getStatusesForKind(kindName) || [])[0] || "",
+          note: "", attachments: [], equipmentSheets: [],
+        });
+        setShowForm(true);
       };
 
       const deleteRecord = (id) => {
@@ -2122,6 +2144,7 @@
           )}
           {(view === "board" || (view === "kousei" && kouseiTab === "board")) && (
             <BoardView
+              onDuplicate={duplicateRecord}
               onSetLayout={setBoardLayout}
               records={filtered.filter(r => {
                 if (boardRouteFilter === "校正") return r.kind === "校正";
@@ -2230,6 +2253,7 @@
           {showForm && (
             <RecordForm
               initial={editing}
+              records={records}
               codes={codes}
               dealerGroups={dealerGroups}
               kinds={kinds}
@@ -4356,7 +4380,7 @@
       );
     }
 
-    function BoardView({ onSetLayout, records, codes, tags, statuses, statusVisibility, layout, scale, onEdit, onDelete, onOpenEquip, onMoveStatus, onReorderStatuses, onExpandStatus, getColor }) {
+    function BoardView({ onDuplicate, onSetLayout, records, codes, tags, statuses, statusVisibility, layout, scale, onEdit, onDelete, onOpenEquip, onMoveStatus, onReorderStatuses, onExpandStatus, getColor }) {
       const [dragCardId, setDragCardId] = useState(null);
       const [dragStatus, setDragStatus] = useState(null);
       const [overStatus, setOverStatus] = useState(null);
@@ -4477,6 +4501,18 @@
                   <div style={{ ...styles.boardColBody, ...boardColBodyDynamic }}>
                     {(byStatus.map[status] || []).map(r => (
                       <div key={r.id} className="board-card-container">
+                        {onDuplicate && (
+                          <button
+                            className="board-card-copy"
+                            style={{ ...styles.iconBtnSm, background: "var(--clr191712)" }}
+                            onClick={(e) => { e.stopPropagation(); onDuplicate(r); }}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            draggable={false}
+                            title="このカードをコピーして新規登録(日付・ステータスは初期化)"
+                          >
+                            <CopyIcon size={12} />
+                          </button>
+                        )}
                         <div
                           style={{ ...styles.boardCard, ...boardCardDynamic, ...(dragCardId === r.id ? styles.boardCardDragging : {}) }}
                           draggable
@@ -4651,7 +4687,7 @@
     }
 
     // ================= Compact Notion-Style Record Form with Smart Date Visibility =================
-    function RecordForm({ initial, codes, dealerGroups, kinds, tags, getStatusesForKind, customerOptions, contactOptions, chargeOptions, modelOptions, onCancel, onSave, onDelete, onOpenEquip, getColor, onSetOptionColor, onReorderCustomerOptions, onReorderContactOptions, onReorderChargeOptions, onReorderModelOptions, onReorderTags, onReorderKinds, onReorderStatuses, onUploadAttachment, onSaveAttachments, onUpdateField, onRemoveCustomerOption, onRemoveContactOption, onRemoveChargeOption, onRemoveModelOption, onRenameCustomerOption, onRenameContactOption, onRenameChargeOption, onRenameModelOption, onRenameTag }) {
+    function RecordForm({ records, initial, codes, dealerGroups, kinds, tags, getStatusesForKind, customerOptions, contactOptions, chargeOptions, modelOptions, onCancel, onSave, onDelete, onOpenEquip, getColor, onSetOptionColor, onReorderCustomerOptions, onReorderContactOptions, onReorderChargeOptions, onReorderModelOptions, onReorderTags, onReorderKinds, onReorderStatuses, onUploadAttachment, onSaveAttachments, onUpdateField, onRemoveCustomerOption, onRemoveContactOption, onRemoveChargeOption, onRemoveModelOption, onRenameCustomerOption, onRenameContactOption, onRenameChargeOption, onRenameModelOption, onRenameTag }) {
       const [subject, setSubject] = useState(initial?.subject || "");
       const [kind, setKind] = useState(initial?.kind || "");
       const [code, setCode] = useState(initial?.code || "");
@@ -4807,6 +4843,41 @@
           .slice(0, 8);
       }, [codeQuery, codes, dealerGroups]);
 
+      // 過去に入力した受付(同じ件名・拠点)から、顧客・担当・型式・NSS/メーカーなどを自動入力する候補
+      const pastMatches = useMemo(() => {
+        if (initial?.id) return [];
+        const q = (codeQuery || "").trim().toLowerCase();
+        if (!q || !Array.isArray(records)) return [];
+        const latest = new Map();
+        records.forEach(r => {
+          if (!r || !r.subject) return;
+          if (!r.subject.toLowerCase().includes(q)) return;
+          const prev = latest.get(r.subject);
+          if (!prev || String(r.receivedDate || "") >= String(prev.receivedDate || "")) latest.set(r.subject, r);
+        });
+        return Array.from(latest.values()).sort((a, b) => String(b.receivedDate || "").localeCompare(String(a.receivedDate || ""))).slice(0, 6);
+      }, [codeQuery, records, initial]);
+
+      const fillFromPast = (r, onlyEmpty) => {
+        const put = (cur, next, set) => { if (next && (!onlyEmpty || !cur)) set(next); };
+        put(customer, r.customer, setCustomer);
+        put(contactName, r.contactName, setContactName);
+        put(personInCharge, r.personInCharge, setPersonInCharge);
+        put(model, r.model, setModel);
+        put(serialYear, r.serialYear, setSerialYear);
+        const tg = recordTagsOf(r);
+        if (tg.length > 0 && (!onlyEmpty || recordTags.length === 0)) setRecordTags(tg);
+        if (r.kind && !kind) handleKindChange(r.kind);
+      };
+
+      const pickPast = (r) => {
+        setSubject(r.subject);
+        setCode(r.code || "");
+        fillFromPast(r, false);
+        setCodeQuery("");
+        setShowSuggest(false);
+      };
+
       const pickCode = (c) => {
         setSubject(displayNameFor(c.name, c.code, dealerGroups));
         setCode(c.code);
@@ -4818,6 +4889,11 @@
 
         if (c.code) {
           copyToClipboard(c.code);
+        }
+
+        if (!initial?.id && Array.isArray(records)) {
+          const same = records.filter(r => r && r.code && r.code === c.code).sort((a, b) => String(b.receivedDate || "").localeCompare(String(a.receivedDate || "")))[0];
+          if (same) fillFromPast(same, true);
         }
 
         setCodeQuery("");
@@ -4905,8 +4981,20 @@
                   {codeCopied ? "✓ コピーしました" : `コード: ${code}`}
                 </span>
               )}
-              {showSuggest && matches.length > 0 && (
+              {showSuggest && (matches.length > 0 || pastMatches.length > 0) && (
                 <div style={styles.suggestBox}>
+                  {pastMatches.length > 0 && (
+                    <div style={{ padding: "4px 10px", fontSize: 11, color: "var(--clr8f8a7c)" }}>過去の入力から自動入力</div>
+                  )}
+                  {pastMatches.map(r => (
+                    <div key={"past-" + r.id} style={styles.suggestRow} onClick={() => pickPast(r)}>
+                      <span>
+                        {r.subject}
+                        <span style={styles.suggestDealer}> ・{[r.customer, r.model, recordTagsOf(r).join("/")].filter(Boolean).join(" / ") || "入力済み項目なし"}</span>
+                      </span>
+                      <span style={styles.suggestCode}>{r.code || ""}</span>
+                    </div>
+                  ))}
                   {matches.map(c => {
                     const dealer = dealerFor(c.code, dealerGroups);
                     return (
