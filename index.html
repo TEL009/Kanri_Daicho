@@ -244,7 +244,7 @@
 
     // ---------- app version ----------
     // 〇(メジャー).△(マイナー).×(パッチ) 形式。画面右上と「クラウド連携・管理メニュー」内に表示されます。
-    const APP_VERSION = "1.0.6";
+    const APP_VERSION = "1.0.7";
     const AUTO_BACKUP_KEY = "kousei:auto-backups";
 
     // ---------- storage helpers ----------
@@ -5156,7 +5156,7 @@
               </div>
 
               <div style={styles.notionSubSectionTitle}>
-                {kind === "校正" ? "校正日程(事前点検日・本校正日)" : "日程(訪問日・作業日)"}
+                {kind === "校正" ? "校正日程(事前点検日・本校正日)" : (["点検", "機器設置"].includes(kind) ? "日程(作業日)" : "日程(訪問日・作業日)")}
               </div>
 
               {kind === "校正" && (
@@ -5178,12 +5178,14 @@
 
               {kind !== "校正" && (
                 <React.Fragment>
+                  {(!["点検", "機器設置"].includes(kind) || visitDate || visitTime || visitEndDate) && (
                   <div className="prop-row">
                     <div className="prop-label"><CalendarIcon size={14} /> 訪問日</div>
                     <div className="prop-value" style={{ display: "flex", alignItems: "center" }}>
                       <DateTimePicker dateValue={visitDate} timeValue={visitTime} onDateChange={setVisitDate} onTimeChange={setVisitTime} endDateValue={visitEndDate} onEndDateChange={setVisitEndDate} />
                     </div>
                   </div>
+                  )}
                   <div className="prop-row">
                     <div className="prop-label"><CalendarIcon size={14} /> 作業日</div>
                     <div className="prop-value" style={{ display: "flex", alignItems: "center" }}>
