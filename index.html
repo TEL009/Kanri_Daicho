@@ -244,7 +244,7 @@
 
     // ---------- app version ----------
     // 〇(メジャー).△(マイナー).×(パッチ) 形式。画面右上と「クラウド連携・管理メニュー」内に表示されます。
-    const APP_VERSION = "1.0.7";
+    const APP_VERSION = "1.0.8";
     const AUTO_BACKUP_KEY = "kousei:auto-backups";
 
     // ---------- storage helpers ----------
@@ -667,6 +667,18 @@
       const [forcePc, setForcePcState] = useState(() => { try { return localStorage.getItem("kousei:force-pc") === "1"; } catch (e) { return false; } });
       const setForcePc = (v) => { setForcePcState(v); try { localStorage.setItem("kousei:force-pc", v ? "1" : "0"); } catch (e) {} };
       const device = forcePc ? "desktop" : viewportDevice;
+      // 画面全体のスクロールをなくすため、上部(ヘッダー+ツールバー)の高さを測り、本体の高さ計算に使う
+      const [topH, setTopH] = useState(170);
+      const topRoRef = useRef(null);
+      const topRef = useCallback((node) => {
+        if (topRoRef.current) { topRoRef.current.disconnect(); topRoRef.current = null; }
+        if (node && typeof ResizeObserver !== "undefined") {
+          const ro = new ResizeObserver(() => setTopH(Math.ceil(node.getBoundingClientRect().height)));
+          ro.observe(node);
+          topRoRef.current = ro;
+          setTopH(Math.ceil(node.getBoundingClientRect().height));
+        }
+      }, []);
       useEffect(() => {
         const meta = document.querySelector('meta[name="viewport"]');
         if (meta) meta.setAttribute("content", forcePc ? "width=1280" : "width=device-width, initial-scale=1.0");
@@ -1851,7 +1863,9 @@
       const activeBoardStatuses = boardRouteFilter === "校正" ? statusesKousei : statusesShuuri;
 
       return (
-        <div style={{ ...styles.app, padding: device === "phone" ? "16px 14px 24px" : device === "tablet" ? "20px 18px 90px" : styles.app.padding }}>
+        <div style={device === "phone"
+          ? { ...styles.app, padding: "16px 14px 24px" }
+          : { ...styles.app, padding: device === "tablet" ? "12px 16px 10px" : "14px 24px 10px", height: "100vh", minHeight: 0, overflow: "hidden", display: "flex", flexDirection: "column", "--top-h": topH + "px" }}>
           {device === "phone" ? (
             <MobilePhoneView
               records={sorted}
@@ -1894,7 +1908,7 @@
             />
           ) : (
           <React.Fragment>
-          <div style={styles.stickyTop}>
+          <div style={{ ...styles.stickyTop, flex: "none" }} ref={topRef}>
           <header style={styles.header}>
             <div>
               <div style={styles.eyebrow}>受付台帳</div>
@@ -1947,6 +1961,13 @@
                   <Redo2 size={15} />
                 </button>
               </div>
+              <button
+                style={{ ...styles.ghostBtn, ...(footerCollapsed ? {} : styles.viewBtnActive) }}
+                onClick={() => setFooterCollapsed(v => !v)}
+                title="クラウド連携・取込・バックアップ・各種編集"
+              >
+                ⚙️ メニュー{syncError && <span style={{ marginLeft: 4, color: "var(--clrc9573f)", fontWeight: 700 }}>⚠</span>}
+              </button>
               {forcePc && (
                 <button style={styles.ghostBtn} onClick={() => setForcePc(false)} title="画面幅に合わせた自動表示(スマホ画面)に戻す">
                   スマホ表示に戻す
@@ -2091,6 +2112,7 @@
           )}
           </div>
 
+          <div style={{ flex: 1, minHeight: 0, overflow: "auto", paddingTop: 8 }}>
           {view === "table" && (
             <TableView
               records={tableSorted}
@@ -2193,24 +2215,14 @@
               getColor={getColor}
             />
           )}
+          </div>
 
           <footer style={styles.footerBar}>
-            <button
-              style={{ ...styles.ghostBtn, marginBottom: footerCollapsed ? 0 : 10 }}
-              onClick={() => setFooterCollapsed(v => !v)}
-              title={footerCollapsed ? "クラウド連携・管理メニューを開く" : "クラウド連携・管理メニューを閉じる"}
-            >
-              {footerCollapsed ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-              クラウド連携・管理メニュー
-              <span style={{ ...styles.versionBadge, marginLeft: 8 }}>v{APP_VERSION}</span>
-              {syncError && (
-                <span style={{ marginLeft: 6, fontSize: 11, color: "var(--clrc9573f)", fontWeight: 600 }}>
-                  ⚠ 同期エラー
-                </span>
-              )}
-            </button>
             {!footerCollapsed && (
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, position: "absolute", left: 0, right: 0, bottom: "100%", background: "var(--clr161410)", borderTop: `1px solid ${rule}`, padding: "12px 24px", maxHeight: "50vh", overflowY: "auto", boxShadow: "0 -8px 24px rgba(0,0,0,0.35)", justifyContent: "center" }}>
+              <div style={{ position: "fixed", inset: 0, zIndex: 59 }} onClick={() => setFooterCollapsed(true)} />
+            )}
+            {!footerCollapsed && (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, position: "fixed", top: 72, right: 24, zIndex: 60, width: "min(560px, calc(100vw - 32px))", background: "var(--clr161410)", border: `1px solid ${rule}`, borderRadius: 12, padding: 14, maxHeight: "75vh", overflowY: "auto", boxShadow: "0 12px 32px rgba(0,0,0,0.4)", justifyContent: "flex-start" }} onClick={() => setFooterCollapsed(true)}>
             <button style={{ ...styles.ghostBtn, ...(gasUrl ? styles.ghostBtnActiveCloud : {}) }} onClick={fetchFromCloud} disabled={syncing} title="クラウドから最新データを手動取得">
               <RefreshCw size={14} className={syncing ? "spin-icon" : ""} /> {syncing ? "同期中…" : "クラウドから取得"}
             </button>
@@ -4464,7 +4476,7 @@
       // 画面内によりたくさんの列・カードが収まるようにするための倍率。
       const scaleFactor = (Number(scale) || 100) / 100;
       const f = (base, min) => Math.max(min ?? Math.round(base * 0.7), Math.round(base * scaleFactor));
-      const boardColDynamic = { width: f(260, 190), flex: `0 0 ${f(260, 190)}px`, maxHeight: "80vh" };
+      const boardColDynamic = { width: f(260, 190), flex: `0 0 ${f(260, 190)}px`, maxHeight: "calc(100vh - var(--top-h, 170px) - 76px)" };
       const boardColHeadDynamic = { padding: `${f(10, 6)}px ${f(12, 8)}px` };
       const boardColTitleDynamic = { fontSize: f(12.5, 10.5) };
       const boardColCountDynamic = { fontSize: f(11, 9.5), padding: `${f(1, 1)}px ${f(7, 5)}px` };
@@ -6746,7 +6758,7 @@
       shortcutDesc: { color: "var(--clrc7c1b3)" },
       emptyTitle: { fontSize: 15, color: ink, marginBottom: 6, fontWeight: 600 },
       emptySub: { fontSize: 13, color: inkDim },
-      tableWrap: { border: `1px solid ${rule}`, borderRadius: 10, overflow: "auto" },
+      tableWrap: { border: `1px solid ${rule}`, borderRadius: 10, overflow: "auto", maxHeight: "calc(100vh - var(--top-h, 170px) - 56px)" },
       table: { width: "100%", borderCollapse: "collapse", fontSize: 13, minWidth: 960 },
       th: {
         textAlign: "left", padding: "9px 14px", background: paperRaised, color: inkFaint,
@@ -6856,8 +6868,7 @@
         color: "var(--clrd8d3c5)",
       },
       footerBar: {
-        position: "fixed", bottom: 0, left: 0, right: 0, background: "var(--clr161410)", borderTop: `1px solid ${rule}`,
-        padding: "8px 24px", display: "flex", gap: 10, justifyContent: "center", alignItems: "center", flexWrap: "wrap", zIndex: 40,
+        position: "static", height: 0, overflow: "visible",
       },
       overlay: {
         position: "fixed", inset: 0, background: "rgba(10,9,6,0.65)", display: "flex",
