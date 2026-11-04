@@ -244,7 +244,7 @@
 
     // ---------- app version ----------
     // 〇(メジャー).△(マイナー).×(パッチ) 形式。画面右上と「クラウド連携・管理メニュー」内に表示されます。
-    const APP_VERSION = "1.0.5";
+    const APP_VERSION = "1.0.6";
     const AUTO_BACKUP_KEY = "kousei:auto-backups";
 
     // ---------- storage helpers ----------
@@ -4861,7 +4861,7 @@
           .slice(0, 8);
       }, [codeQuery, codes, dealerGroups]);
 
-      // 過去に入力した受付(同じ件名・拠点)から、顧客・担当・型式・NSS/メーカーなどを自動入力する候補
+      // 過去に入力した受付(同じ件名・拠点)から、種別・NSS・メーカー・営業担当・得意先・担当者(型式・製造番号は対象外)を自動入力する候補
       const pastMatches = useMemo(() => {
         if (initial?.id) return [];
         const q = (codeQuery || "").trim().toLowerCase();
@@ -4881,8 +4881,6 @@
         put(customer, r.customer, setCustomer);
         put(contactName, r.contactName, setContactName);
         put(personInCharge, r.personInCharge, setPersonInCharge);
-        put(model, r.model, setModel);
-        put(serialYear, r.serialYear, setSerialYear);
         const tg = recordTagsOf(r);
         if (tg.length > 0 && (!onlyEmpty || recordTags.length === 0)) setRecordTags(tg);
         if (r.kind && !kind) handleKindChange(r.kind);
@@ -5008,7 +5006,7 @@
                     <div key={"past-" + r.id} style={styles.suggestRow} onClick={() => pickPast(r)}>
                       <span>
                         {r.subject}
-                        <span style={styles.suggestDealer}> ・{[r.customer, r.model, recordTagsOf(r).join("/")].filter(Boolean).join(" / ") || "入力済み項目なし"}</span>
+                        <span style={styles.suggestDealer}> ・{[r.customer, r.contactName, recordTagsOf(r).join("/")].filter(Boolean).join(" / ") || "入力済み項目なし"}</span>
                       </span>
                       <span style={styles.suggestCode}>{r.code || ""}</span>
                     </div>
